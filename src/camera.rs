@@ -84,13 +84,16 @@ impl SimCamera {
     }
 
     pub fn as_camera2d(&self) -> Camera2D {
-        let width = 1280.0;
-        let height = 720.0;
+        let sw = screen_width();
+        let sh = screen_height();
+        // Convert pixels-per-unit zoom to normalized device space (-1..1)
+        let zoom_x = 2.0 * self.zoom / sw;
+        let zoom_y = 2.0 * self.zoom / sh;
         Camera2D {
             target: vec2(self.target_x, self.target_y),
-            offset: vec2(width / 2.0, height / 2.0),
+            offset: vec2(0.0, 0.0),
             rotation: self.rotation,
-            zoom: vec2(self.zoom, self.zoom),
+            zoom: vec2(zoom_x, zoom_y),
             render_target: None,
             viewport: None,
         }

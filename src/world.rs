@@ -165,6 +165,7 @@ fn tile_index(col: i32, row: i32, width: i32) -> Option<usize> {
     if col < 0 || col >= width || row < 0 {
         return None;
     }
+    // Note: row >= height check is done by caller via get_tile bounds
     let idx = row as usize * width as usize + col as usize;
     Some(idx)
 }
@@ -343,16 +344,20 @@ impl World {
                 .sqrt();
                 let min_dist = dist1.min(dist2);
 
-                // Continent radius (tiles) - controls how large the landmasses are
-                let continent_radius = 80.0;
+                // Scale continent radius to map size so it works on any map dimension
+                let continent_radius = (width.min(height) as f32) * 0.35;
 
                 // Base elevation from distance (1.0 at center, 0.0 at radius) - linear falloff
                 let base_elevation = 1.0 - (min_dist / continent_radius).clamp(0.0, 1.0);
 
-                // Test: use only base elevation, no noise
+                // Blend noise for natural coastlines and terrain variation
                 let nx = col as f32 * 0.1;
                 let ny = row as f32 * 0.1;
-                let elevation = base_elevation.clamp(0.0, 1.0);
+                let continent_noise = fbm(nx * 0.5, ny * 0.5, seed, 3, 1.0);
+                let detail_noise = fbm(nx, ny, seed + 100, 4, 2.0);
+                let elevation =
+                    (base_elevation * 0.65 + continent_noise * 0.25 + detail_noise * 0.1)
+                        .clamp(0.0, 1.0);
 
                 // Temperature: latitude-based with noise
                 let lat = if height > 1 {
@@ -387,13 +392,13 @@ impl World {
             tiles,
         };
 
-        // TEMPORARILY DISABLED - might be capping elevations
-        // world.pit_fill();
-        println!("[DEBUG] Skipped pit_fill");
+        // Pit-fill disabled - it drains elevations to ocean level instead of filling pits
+        // world.pit_fill(pit_passes);
+        println!("[DEBUG] Skipped pit_fill (drains elevations)");
 
-        // TEMPORARILY DISABLED - O(n^4) performance issue
-        // world.apply_moisture_falloff();
-        println!("[DEBUG] Skipped moisture_falloff (performance)");
+        // Re-enable moisture falloff (now O(n) BFS)
+        world.apply_moisture_falloff();
+        println!("[DEBUG] After moisture_falloff: BFS flood-fill complete");
 
         world.assign_biomes();
         println!("[DEBUG] After assign_biomes: biomes assigned");
@@ -519,9 +524,8 @@ impl World {
         self.tiles.get_mut(idx)
     }
 
-    fn pit_fill(&mut self) {
-        // Limit to 2 passes to fill small pits without draining the entire map
-        for _ in 0..2 {
+    fn pit_fill(&mut self, passes: usize) {
+        for _ in 0..passes {
             for row in 0..self.height {
                 for col in 0..self.width {
                     let idx = tile_index(col, row, self.width).unwrap();
@@ -545,29 +549,55 @@ impl World {
         }
     }
 
+    // O(n) multi-source BFS flood-fill from all ocean tiles
     fn apply_moisture_falloff(&mut self) {
+        let max_dist = 15.0_f32;
+        let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::new();
+        let mut dist_map = vec![f32::MAX; (self.width * self.height) as usize];
+
+        // Seed BFS from all ocean tiles
+        for row in 0..self.height {
+            for col in 0..self.width {
+                let idx = tile_index(col, row, self.width).unwrap();
+                if self.tiles[idx].elevation < OCEAN_CUTOFF {
+                    dist_map[idx] = 0.0;
+                    queue.push_back((col, row));
+                }
+            }
+        }
+
+        // BFS outward from ocean
+        while let Some((col, row)) = queue.pop_front() {
+            let idx = tile_index(col, row, self.width).unwrap();
+            let dist = dist_map[idx];
+            if dist >= max_dist {
+                continue;
+            }
+            for (nc, nr) in hex_neighbors(col, row) {
+                if nr < 0 || nr >= self.height {
+                    continue;
+                }
+                if let Some(nidx) = tile_index(nc, nr, self.width) {
+                    if nidx < dist_map.len() && dist_map[nidx] == f32::MAX {
+                        dist_map[nidx] = dist + 1.0;
+                        queue.push_back((nc, nr));
+                    }
+                }
+            }
+        }
+
+        // Apply moisture bonus based on BFS distance
         for row in 0..self.height {
             for col in 0..self.width {
                 let idx = tile_index(col, row, self.width).unwrap();
                 if self.tiles[idx].elevation < OCEAN_CUTOFF {
                     continue;
                 }
-                let mut min_dist = 20.0_f32;
-                for r in 0..self.height {
-                    for c in 0..self.width {
-                        let idx2 = tile_index(c, r, self.width).unwrap();
-                        if self.tiles[idx2].elevation < OCEAN_CUTOFF {
-                            let dc = (c - col) as f32;
-                            let dr = (r - row) as f32;
-                            let dist = (dc * dc + dr * dr).sqrt();
-                            if dist < min_dist {
-                                min_dist = dist;
-                            }
-                        }
-                    }
+                let dist = dist_map[idx];
+                if dist < max_dist {
+                    let bonus = (1.0 - dist / max_dist) * 0.3;
+                    self.tiles[idx].moisture = (self.tiles[idx].moisture + bonus).clamp(0.0, 1.0);
                 }
-                let bonus = (1.0 - (min_dist / 10.0).clamp(0.0, 1.0)) * 0.25;
-                self.tiles[idx].moisture = (self.tiles[idx].moisture + bonus).clamp(0.0, 1.0);
             }
         }
     }
@@ -714,7 +744,7 @@ pub fn draw_world(world: &World, cam_target_x: f32, cam_target_y: f32, cam_zoom:
             center.y,
             6,
             hex_size * overlap,
-            0.0,
+            -30.0,
             tile.biome.color(),
         );
     }
@@ -734,7 +764,7 @@ pub fn draw_world(world: &World, cam_target_x: f32, cam_target_y: f32, cam_zoom:
         }
 
         let color = tile.biome.color();
-        draw_poly(center.x, center.y, 6, hex_size * overlap, 0.0, color);
+        draw_poly(center.x, center.y, 6, hex_size * overlap, -30.0, color);
 
         // Draw resources
         if let Some(ref res) = tile.resource {
@@ -804,7 +834,7 @@ pub fn draw_world(world: &World, cam_target_x: f32, cam_target_y: f32, cam_zoom:
                 center.y,
                 6,
                 hex_size * overlap,
-                0.0,
+                -30.0,
                 0.5,
                 Color::from_rgba(0, 0, 0, 60),
             );
