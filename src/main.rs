@@ -1,4 +1,6 @@
+mod agent;
 mod camera;
+mod evolution;
 mod render;
 mod sim;
 mod ui;
@@ -76,6 +78,7 @@ async fn main() {
                 clear_background(Color::from_rgba(30, 70, 160, 255));
                 set_camera(&sim_camera.as_camera2d());
                 renderer.draw_world(&sim.world, sim_camera.target_x, sim_camera.target_y, sim_camera.zoom);
+                renderer.draw_agents(&sim.evo.agents, &sim.world, sim_camera.target_x, sim_camera.target_y, sim_camera.zoom);
                 set_default_camera();
                 ui.draw(sim);
 

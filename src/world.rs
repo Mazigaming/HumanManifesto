@@ -250,7 +250,7 @@ fn hex_neighbors(col: i32, row: i32) -> [(i32, i32); 6] {
     }
 }
 
-fn hex_center(col: i32, row: i32, size: f32) -> Vec2 {
+pub fn hex_center(col: i32, row: i32, size: f32) -> Vec2 {
     let x = size * (3.0_f32.sqrt() * col as f32 + 3.0_f32.sqrt() / 2.0 * (row & 1) as f32);
     let y = size * (1.5 * row as f32);
     vec2(x, y)
