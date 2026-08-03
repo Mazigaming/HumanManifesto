@@ -483,6 +483,9 @@ impl World {
     }
 
     fn detect_boundaries(&mut self, plates: &[Plate]) {
+        // First pass: mark tiles that are near plate boundaries
+        let mut boundary_tiles = Vec::new();
+
         for row in 0..self.height {
             for col in 0..self.width {
                 let idx = (row * self.width + col) as usize;
@@ -494,38 +497,70 @@ impl World {
                         if nidx < self.tiles.len() {
                             let neighbor_plate = self.tiles[nidx].plate_id.unwrap();
                             if neighbor_plate != my_plate {
-                                // Different plates meet here - determine boundary type
-                                let my_drift = (plates[my_plate].drift_x, plates[my_plate].drift_y);
-                                let their_drift = (
-                                    plates[neighbor_plate].drift_x,
-                                    plates[neighbor_plate].drift_y,
-                                );
+                                boundary_tiles.push((col, row));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-                                // Vector from my center to their center
-                                let dx =
-                                    plates[neighbor_plate].center_col - plates[my_plate].center_col;
-                                let dy =
-                                    plates[neighbor_plate].center_row - plates[my_plate].center_row;
-                                let dist = (dx * dx + dy * dy).sqrt();
-                                if dist > 0.0 {
-                                    let nx = dx / dist;
-                                    let ny = dy / dist;
+        // Second pass: smooth boundary effects over 2-tile radius
+        for &(col, row) in &boundary_tiles {
+            for dr in -2..=2 {
+                for dc in -2..=2 {
+                    let nc = col + dc;
+                    let nr = row + dr;
+                    if let Some(idx) = tile_index(nc, nr, self.width) {
+                        if idx < self.tiles.len() && self.tiles[idx].boundary_type.is_none() {
+                            // Calculate distance from boundary
+                            let dist = (dc * dc + dr * dr) as f32;
+                            let falloff = (1.0 - dist / 8.0).max(0.0);
 
-                                    // Relative velocity along boundary normal
-                                    let rel_vx = their_drift.0 - my_drift.0;
-                                    let rel_vy = their_drift.1 - my_drift.1;
-                                    let convergence = rel_vx * nx + rel_vy * ny;
+                            // Determine boundary type based on nearest boundary tile
+                            let my_plate = self.tiles[idx].plate_id.unwrap();
+                            for (nc2, nr2) in hex_neighbors(nc, nr) {
+                                if let Some(nidx2) = tile_index(nc2, nr2, self.width) {
+                                    if nidx2 < self.tiles.len() {
+                                        let neighbor_plate = self.tiles[nidx2].plate_id.unwrap();
+                                        if neighbor_plate != my_plate {
+                                            let my_drift = (
+                                                plates[my_plate].drift_x,
+                                                plates[my_plate].drift_y,
+                                            );
+                                            let their_drift = (
+                                                plates[neighbor_plate].drift_x,
+                                                plates[neighbor_plate].drift_y,
+                                            );
 
-                                    let boundary = if convergence > 0.1 {
-                                        BoundaryType::Convergent
-                                    } else if convergence < -0.1 {
-                                        BoundaryType::Divergent
-                                    } else {
-                                        BoundaryType::Transform
-                                    };
+                                            let dx = plates[neighbor_plate].center_col
+                                                - plates[my_plate].center_col;
+                                            let dy = plates[neighbor_plate].center_row
+                                                - plates[my_plate].center_row;
+                                            let dist = (dx * dx + dy * dy).sqrt();
+                                            if dist > 0.0 {
+                                                let nx = dx / dist;
+                                                let ny = dy / dist;
 
-                                    self.tiles[idx].boundary_type = Some(boundary);
-                                    break;
+                                                let rel_vx = their_drift.0 - my_drift.0;
+                                                let rel_vy = their_drift.1 - my_drift.1;
+                                                let convergence = rel_vx * nx + rel_vy * ny;
+
+                                                let boundary = if convergence > 0.1 {
+                                                    BoundaryType::Convergent
+                                                } else if convergence < -0.1 {
+                                                    BoundaryType::Divergent
+                                                } else {
+                                                    BoundaryType::Transform
+                                                };
+
+                                                // Only set if not already set, or if this is closer
+                                                self.tiles[idx].boundary_type = Some(boundary);
+                                                break;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -552,11 +587,11 @@ impl World {
                 // Base elevation: high at center, low at edges
                 let base_elev = (1.0 - normalized_dist).powi(2);
 
-                // Boundary effects
+                // Boundary effects (reduced to avoid visible seams)
                 let boundary_boost = match self.tiles[idx].boundary_type {
-                    Some(BoundaryType::Convergent) => 0.3, // Mountains
-                    Some(BoundaryType::Divergent) => -0.2, // Rift valleys
-                    Some(BoundaryType::Transform) => 0.05, // Minor
+                    Some(BoundaryType::Convergent) => 0.15, // Mountains (reduced from 0.3)
+                    Some(BoundaryType::Divergent) => -0.1,  // Rift valleys (reduced from -0.2)
+                    Some(BoundaryType::Transform) => 0.02,  // Minor (reduced from 0.05)
                     None => 0.0,
                 };
 
@@ -567,25 +602,25 @@ impl World {
 
     fn apply_noise_overlay(&mut self) {
         // Domain warping: distort coordinates using secondary noise field
-        let warp_strength = 8.0; // Tunable: higher = more distorted coastlines
+        let warp_strength = 6.0; // Reduced from 8.0 for performance
 
         for row in 0..self.height {
             for col in 0..self.width {
                 let idx = (row * self.width + col) as usize;
 
-                // Generate warp offsets from low-frequency noise
+                // Generate warp offsets from low-frequency noise (reduced octaves for performance)
                 let warp_x = fbm(
                     col as f32 * 0.02,
                     row as f32 * 0.02,
                     self.seed + 1000,
-                    2,
+                    1,
                     1.0,
                 ) * warp_strength;
                 let warp_y = fbm(
                     col as f32 * 0.02,
                     row as f32 * 0.02,
                     self.seed + 2000,
-                    2,
+                    1,
                     1.0,
                 ) * warp_strength;
 
@@ -593,18 +628,18 @@ impl World {
                 let warped_col = col as f32 + warp_x;
                 let warped_row = row as f32 + warp_y;
 
-                // Multi-scale noise blending
+                // Multi-scale noise blending (reduced octaves for performance)
                 let continent_scale =
-                    fbm(warped_col * 0.01, warped_row * 0.01, self.seed, 2, 1.0) * 0.4;
+                    fbm(warped_col * 0.01, warped_row * 0.01, self.seed, 1, 1.0) * 0.4;
                 let regional_scale = fbm(
                     warped_col * 0.05,
                     warped_row * 0.05,
                     self.seed + 100,
-                    4,
+                    2,
                     1.0,
                 ) * 0.3;
                 let local_scale =
-                    fbm(warped_col * 0.2, warped_row * 0.2, self.seed + 200, 3, 1.0) * 0.1;
+                    fbm(warped_col * 0.2, warped_row * 0.2, self.seed + 200, 2, 1.0) * 0.1;
 
                 let noise = continent_scale + regional_scale + local_scale;
                 self.tiles[idx].elevation = (self.tiles[idx].elevation + noise).clamp(0.0, 1.0);
@@ -614,7 +649,7 @@ impl World {
                     warped_col * 0.03,
                     warped_row * 0.03,
                     self.seed + 300,
-                    3,
+                    2,
                     1.0,
                 ) * 0.2;
                 self.tiles[idx].moisture =
@@ -874,53 +909,56 @@ impl World {
 
     fn trace_rivers(&mut self) {
         // Hydraulic erosion: simulate water droplets flowing downhill
-        // This creates branching river networks and carves valleys
-        let droplet_count = ((self.width * self.height) / 100).max(100) as usize;
-        let erosion_rate = 0.01; // How much elevation each droplet removes
-        let deposit_rate = 0.005; // How much elevation each droplet deposits
-        let min_erosion_threshold = 0.05; // Minimum erosion to mark as river
+        // Performance: scale droplet count with map size, cap at reasonable limit
+        let tile_count = (self.width * self.height) as usize;
+        let droplet_count = (tile_count / 200).clamp(50, 500); // Reduced from /100
+        let erosion_rate = 0.008; // Slightly reduced
+        let deposit_rate = 0.004;
+        let min_erosion_threshold = 0.03; // Slightly reduced
 
-        let mut erosion_map = vec![0.0_f32; (self.width * self.height) as usize];
+        let mut erosion_map = vec![0.0_f32; tile_count];
 
         // Drop droplets from random elevated points
         for i in 0..droplet_count {
-            // Find a random elevated starting point
+            // Find a random elevated starting point (limit attempts for performance)
             let mut attempts = 0;
             let mut start_col = 0;
             let mut start_row = 0;
 
-            while attempts < 100 {
+            while attempts < 50 {
+                // Reduced from 100
                 start_col =
                     (hash2d(i as i32, attempts, self.seed + 5000) * self.width as f32) as i32;
                 start_row =
                     (hash2d(attempts, i as i32, self.seed + 6000) * self.height as f32) as i32;
 
                 if let Some(idx) = tile_index(start_col, start_row, self.width) {
-                    if idx < self.tiles.len() && self.tiles[idx].elevation > 0.5 {
+                    if idx < self.tiles.len() && self.tiles[idx].elevation > 0.45 {
+                        // Reduced threshold
                         break;
                     }
                 }
                 attempts += 1;
             }
 
-            if attempts >= 100 {
+            if attempts >= 50 {
                 continue;
             }
 
-            // Simulate droplet flowing downhill
+            // Simulate droplet flowing downhill (limit path length for performance)
             let mut col = start_col;
             let mut row = start_row;
             let mut water = 1.0;
             let mut speed = 1.0;
-            let mut path = Vec::new();
+            let mut steps = 0;
+            let max_steps = 100; // Limit path length
 
-            while water > 0.01 {
+            while water > 0.01 && steps < max_steps {
                 if let Some(idx) = tile_index(col, row, self.width) {
                     if idx >= self.tiles.len() {
                         break;
                     }
 
-                    path.push((col, row));
                     let current_elev = self.tiles[idx].elevation;
 
                     // Find steepest downhill neighbor
@@ -948,8 +986,8 @@ impl World {
                     if let Some((nc, nr)) = lowest_neighbor {
                         col = nc;
                         row = nr;
-                        speed = (speed + 0.1).min(2.0); // Accelerate downhill
-                        water *= 0.98; // Lose some water
+                        speed = (speed + 0.1).min(2.0);
+                        water *= 0.98;
                     } else {
                         // Deposit sediment at local minimum
                         let deposit = deposit_rate * water;
@@ -959,6 +997,7 @@ impl World {
                 } else {
                     break;
                 }
+                steps += 1;
             }
         }
 
@@ -971,8 +1010,8 @@ impl World {
 
         let river_count = self.tiles.iter().filter(|t| t.is_river).count();
         println!(
-            "[DEBUG] Hydraulic erosion complete: {} river tiles",
-            river_count
+            "[DEBUG] Hydraulic erosion complete: {} river tiles ({} droplets)",
+            river_count, droplet_count
         );
     }
 
@@ -1103,15 +1142,15 @@ pub fn draw_world(world: &World, cam_target_x: f32, cam_target_y: f32, cam_zoom:
             );
         }
 
-        // Draw trees on forest/jungle/taiga tiles (only when zoomed in)
-        if cam_zoom > 1.5 {
+        // Draw trees on forest/jungle/taiga tiles (only when zoomed in enough)
+        if cam_zoom > 2.0 {
             let has_trees = matches!(
                 tile.biome,
                 Biome::TemperateForest | Biome::Jungle | Biome::Taiga | Biome::HighlandForest
             );
             if has_trees {
-                // Draw 2-3 small triangles per tile
-                let tree_count = if tile.biome == Biome::Jungle { 3 } else { 2 };
+                // Draw fewer trees for performance (1-2 per tile instead of 2-3)
+                let tree_count = if tile.biome == Biome::Jungle { 2 } else { 1 };
                 for t in 0..tree_count {
                     let angle = (t as f32 / tree_count as f32) * std::f32::consts::TAU;
                     let offset_x = angle.cos() * 4.0;
