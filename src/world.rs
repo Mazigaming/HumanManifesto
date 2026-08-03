@@ -119,7 +119,56 @@ pub struct ResourceNode {
     pub richness: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoundaryType {
+    Convergent, // Mountains
+    Divergent,  // Rift valleys
+    Transform,  // Minor disturbance
+}
+
 #[derive(Clone, Copy, Debug)]
+pub struct Plate {
+    pub center_col: f32,
+    pub center_row: f32,
+    pub drift_x: f32,
+    pub drift_y: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuinType {
+    Structure,
+    Burial,
+    Monument,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Ruin {
+    pub ruin_type: RuinType,
+}
+
+#[derive(Clone, Debug)]
+pub struct LegendaryResource {
+    pub name: String,
+    pub resource_type: ResourceType,
+    pub richness: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpecialBiomeVariant {
+    None,
+    CrystalCavern, // Mountain variant
+    Oasis,         // Desert variant
+    Aurora,        // Tundra variant
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct OriginPoint {
+    pub col: i32,
+    pub row: i32,
+    pub color_seed: u64,
+}
+
+#[derive(Clone, Debug)]
 pub struct HexTile {
     pub col: i32,
     pub row: i32,
@@ -129,6 +178,14 @@ pub struct HexTile {
     pub biome: Biome,
     pub is_river: bool,
     pub resource: Option<ResourceNode>,
+    // Phase 1.5 fields
+    pub plate_id: Option<usize>,
+    pub boundary_type: Option<BoundaryType>,
+    pub origin_point: Option<usize>,
+    pub ruin: Option<Ruin>,
+    pub legendary_resource: Option<LegendaryResource>,
+    pub special_variant: SpecialBiomeVariant,
+    pub name: Option<String>,
 }
 
 pub struct World {
@@ -323,64 +380,34 @@ fn resource_table(biome: Biome) -> Vec<(ResourceType, f32, f32)> {
 
 impl World {
     pub fn generate(width: i32, height: i32, seed: u64) -> Self {
-        let hex_size = 16.0;
+        let _hex_size = 16.0;
+        let tile_count = (width * height) as usize;
 
-        let mut tiles: Vec<HexTile> = Vec::with_capacity((width * height) as usize);
+        // Generate plates (1 per ~150x150 area, minimum 2)
+        let plate_count = ((width * height) / (150 * 150)).max(2) as usize;
+        let plates = Self::generate_plates(plate_count, width, height, seed);
 
+        // Initialize tiles with plate assignment
+        let mut tiles: Vec<HexTile> = Vec::with_capacity(tile_count);
         for row in 0..height {
             for col in 0..width {
-                let _center = hex_center(col, row, hex_size);
-                // Distance-based continents with noise overlay
-                let continent1_x = width as f32 * 0.3;
-                let continent1_y = height as f32 * 0.4;
-                let continent2_x = width as f32 * 0.7;
-                let continent2_y = height as f32 * 0.6;
-
-                let dist1 = ((col as f32 - continent1_x).powi(2)
-                    + (row as f32 - continent1_y).powi(2))
-                .sqrt();
-                let dist2 = ((col as f32 - continent2_x).powi(2)
-                    + (row as f32 - continent2_y).powi(2))
-                .sqrt();
-                let min_dist = dist1.min(dist2);
-
-                // Scale continent radius to map size so it works on any map dimension
-                let continent_radius = (width.min(height) as f32) * 0.35;
-
-                // Base elevation from distance (1.0 at center, 0.0 at radius) - linear falloff
-                let base_elevation = 1.0 - (min_dist / continent_radius).clamp(0.0, 1.0);
-
-                // Blend noise for natural coastlines and terrain variation
-                let nx = col as f32 * 0.1;
-                let ny = row as f32 * 0.1;
-                let continent_noise = fbm(nx * 0.5, ny * 0.5, seed, 3, 1.0);
-                let detail_noise = fbm(nx, ny, seed + 100, 4, 2.0);
-                let elevation =
-                    (base_elevation * 0.65 + continent_noise * 0.25 + detail_noise * 0.1)
-                        .clamp(0.0, 1.0);
-
-                // Temperature: latitude-based with noise
-                let lat = if height > 1 {
-                    (row as f32 / (height - 1) as f32 - 0.5).abs() * 2.0
-                } else {
-                    0.0
-                };
-                let temp_noise = fbm(nx * 0.5, ny * 0.5, seed + 300, 3, 1.0);
-                let temperature =
-                    ((1.0 - lat) * 0.7 + temp_noise * 0.3 - elevation * 0.2).clamp(0.0, 1.0);
-
-                // Moisture: noise-based
-                let moisture = fbm(nx * 0.8, ny * 0.8, seed + 400, 3, 1.5).clamp(0.0, 1.0);
-
+                let plate_id = Self::find_nearest_plate(col, row, &plates);
                 tiles.push(HexTile {
                     col,
                     row,
-                    elevation,
-                    moisture,
-                    temperature,
+                    elevation: 0.0,
+                    moisture: 0.5,
+                    temperature: 0.5,
                     biome: Biome::Ocean,
                     is_river: false,
                     resource: None,
+                    plate_id: Some(plate_id),
+                    boundary_type: None,
+                    origin_point: None,
+                    ruin: None,
+                    legendary_resource: None,
+                    special_variant: SpecialBiomeVariant::None,
+                    name: None,
                 });
             }
         }
@@ -392,128 +419,338 @@ impl World {
             tiles,
         };
 
-        // Pit-fill disabled - it drains elevations to ocean level instead of filling pits
-        // world.pit_fill(pit_passes);
-        println!("[DEBUG] Skipped pit_fill (drains elevations)");
+        // Detect plate boundaries and apply elevation effects
+        world.detect_boundaries(&plates);
 
-        // Re-enable moisture falloff (now O(n) BFS)
-        world.apply_moisture_falloff();
-        println!("[DEBUG] After moisture_falloff: BFS flood-fill complete");
+        // Apply plate-based elevation
+        world.apply_plate_elevation(&plates);
+
+        // TODO: Add domain warping, multi-scale noise, wind moisture, erosion...
+        // For now, use simple noise overlay
+        world.apply_noise_overlay();
 
         world.assign_biomes();
-        println!("[DEBUG] After assign_biomes: biomes assigned");
-
         world.trace_rivers();
-        let river_count = world.tiles.iter().filter(|t| t.is_river).count();
-        println!("[DEBUG] After trace_rivers: {} river tiles", river_count);
-
         world.place_resources();
-        let resource_count = world.tiles.iter().filter(|t| t.resource.is_some()).count();
-        println!(
-            "[DEBUG] After place_resources: {} tiles with resources",
-            resource_count
-        );
 
-        // DEBUG: Print comprehensive terrain stats
-        println!("\n=== TERRAIN GENERATION DEBUG ===");
-        println!(
-            "Map size: {}x{} = {} tiles",
-            world.width,
-            world.height,
-            world.tiles.len()
-        );
-        println!("Seed: {}", world.seed);
+        // Generate discovery layer
+        world.generate_origin_points(3);
+        world.scatter_ruins(15);
+        world.place_legendary_resources(2);
+        world.add_special_biome_variants(8);
 
-        let mut min_elev = f32::MAX;
-        let mut max_elev = f32::MIN;
-        let mut sum_elev = 0.0;
-        let mut land_count = 0;
-        let mut ocean_count = 0;
-        let mut biome_counts = std::collections::HashMap::new();
-        let mut elevation_buckets = [0; 10]; // 0.0-0.1, 0.1-0.2, etc.
-
-        for tile in &world.tiles {
-            min_elev = min_elev.min(tile.elevation);
-            max_elev = max_elev.max(tile.elevation);
-            sum_elev += tile.elevation;
-
-            if tile.elevation >= OCEAN_CUTOFF {
-                land_count += 1;
-            } else {
-                ocean_count += 1;
-            }
-
-            let bucket = (tile.elevation * 10.0) as usize;
-            if bucket < 10 {
-                elevation_buckets[bucket] += 1;
-            }
-
-            *biome_counts.entry(format!("{:?}", tile.biome)).or_insert(0) += 1;
-        }
-
-        let avg_elev = sum_elev / world.tiles.len() as f32;
-        let _land_pct = land_count * 100 / world.tiles.len();
-
-        println!("\n--- Elevation Statistics ---");
-        println!(
-            "Min: {:.3}, Max: {:.3}, Avg: {:.3}",
-            min_elev, max_elev, avg_elev
-        );
-        println!("Ocean cutoff: {:.2}", OCEAN_CUTOFF);
-        println!(
-            "Land tiles: {} ({:.1}%)",
-            land_count,
-            land_count as f32 / world.tiles.len() as f32 * 100.0
-        );
-        println!(
-            "Ocean tiles: {} ({:.1}%)",
-            ocean_count,
-            ocean_count as f32 / world.tiles.len() as f32 * 100.0
-        );
-
-        println!("\n--- Elevation Distribution ---");
-        for i in 0..10 {
-            let low = i as f32 / 10.0;
-            let high = (i + 1) as f32 / 10.0;
-            let count = elevation_buckets[i];
-            let pct = count as f32 / world.tiles.len() as f32 * 100.0;
-            let bar = "█".repeat((pct / 2.0) as usize);
-            println!(
-                "[{:.1}-{:.1}]: {:4} ({:5.1}%) {}",
-                low, high, count, pct, bar
-            );
-        }
-
-        println!("\n--- Biome Distribution ---");
-        let mut biome_vec: Vec<_> = biome_counts.into_iter().collect();
-        biome_vec.sort_by(|a, b| b.1.cmp(&a.1));
-        for (biome, count) in biome_vec {
-            let pct = count as f32 / world.tiles.len() as f32 * 100.0;
-            println!("  {:20}: {:5} ({:.1}%)", biome, count, pct);
-        }
-
-        println!("\n--- Sample Tiles (center of map) ---");
-        let center_col = world.width / 2;
-        let center_row = world.height / 2;
-        for row_offset in -2..=2 {
-            for col_offset in -2..=2 {
-                let col = center_col + col_offset;
-                let row = center_row + row_offset;
-                if let Some(tile) = world.get_tile(col, row) {
-                    println!(
-                        "  [{:3},{:3}] elev={:.3} temp={:.3} moist={:.3} biome={:?}",
-                        col, row, tile.elevation, tile.temperature, tile.moisture, tile.biome
-                    );
-                }
-            }
-        }
-
-        println!("=================================\n");
+        println!("[DEBUG] Phase 1.5 generation complete");
+        println!("[DEBUG] Plates: {}, Boundaries detected", plates.len());
 
         world
     }
 
-    fn get_tile(&self, col: i32, row: i32) -> Option<&HexTile> {
+    fn generate_plates(count: usize, width: i32, height: i32, _seed: u64) -> Vec<Plate> {
+        let mut plates = Vec::with_capacity(count);
+        for i in 0..count {
+            let angle = (i as f32 / count as f32) * std::f32::consts::TAU;
+            let drift_x = angle.cos() * 0.5;
+            let drift_y = angle.sin() * 0.5;
+
+            // Spread plate centers across the map
+            let center_col = (width as f32 / 2.0) + (width as f32 * 0.3 * angle.cos());
+            let center_row = (height as f32 / 2.0) + (height as f32 * 0.3 * angle.sin());
+
+            plates.push(Plate {
+                center_col,
+                center_row,
+                drift_x,
+                drift_y,
+            });
+        }
+        plates
+    }
+
+    fn find_nearest_plate(col: i32, row: i32, plates: &[Plate]) -> usize {
+        let mut nearest = 0;
+        let mut min_dist = f32::MAX;
+
+        for (i, plate) in plates.iter().enumerate() {
+            let dc = col as f32 - plate.center_col;
+            let dr = row as f32 - plate.center_row;
+            let dist = dc * dc + dr * dr;
+            if dist < min_dist {
+                min_dist = dist;
+                nearest = i;
+            }
+        }
+        nearest
+    }
+
+    fn detect_boundaries(&mut self, plates: &[Plate]) {
+        for row in 0..self.height {
+            for col in 0..self.width {
+                let idx = (row * self.width + col) as usize;
+                let my_plate = self.tiles[idx].plate_id.unwrap();
+
+                // Check all neighbors for different plates
+                for (nc, nr) in hex_neighbors(col, row) {
+                    if let Some(nidx) = tile_index(nc, nr, self.width) {
+                        if nidx < self.tiles.len() {
+                            let neighbor_plate = self.tiles[nidx].plate_id.unwrap();
+                            if neighbor_plate != my_plate {
+                                // Different plates meet here - determine boundary type
+                                let my_drift = (plates[my_plate].drift_x, plates[my_plate].drift_y);
+                                let their_drift = (
+                                    plates[neighbor_plate].drift_x,
+                                    plates[neighbor_plate].drift_y,
+                                );
+
+                                // Vector from my center to their center
+                                let dx =
+                                    plates[neighbor_plate].center_col - plates[my_plate].center_col;
+                                let dy =
+                                    plates[neighbor_plate].center_row - plates[my_plate].center_row;
+                                let dist = (dx * dx + dy * dy).sqrt();
+                                if dist > 0.0 {
+                                    let nx = dx / dist;
+                                    let ny = dy / dist;
+
+                                    // Relative velocity along boundary normal
+                                    let rel_vx = their_drift.0 - my_drift.0;
+                                    let rel_vy = their_drift.1 - my_drift.1;
+                                    let convergence = rel_vx * nx + rel_vy * ny;
+
+                                    let boundary = if convergence > 0.1 {
+                                        BoundaryType::Convergent
+                                    } else if convergence < -0.1 {
+                                        BoundaryType::Divergent
+                                    } else {
+                                        BoundaryType::Transform
+                                    };
+
+                                    self.tiles[idx].boundary_type = Some(boundary);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn apply_plate_elevation(&mut self, plates: &[Plate]) {
+        for row in 0..self.height {
+            for col in 0..self.width {
+                let idx = (row * self.width + col) as usize;
+                let plate_id = self.tiles[idx].plate_id.unwrap();
+                let plate = &plates[plate_id];
+
+                // Distance from plate center (normalized)
+                let dc = col as f32 - plate.center_col;
+                let dr = row as f32 - plate.center_row;
+                let dist = (dc * dc + dr * dr).sqrt();
+                let max_dist = (self.width.max(self.height) as f32) * 0.5;
+                let normalized_dist = (dist / max_dist).min(1.0);
+
+                // Base elevation: high at center, low at edges
+                let base_elev = (1.0 - normalized_dist).powi(2);
+
+                // Boundary effects
+                let boundary_boost = match self.tiles[idx].boundary_type {
+                    Some(BoundaryType::Convergent) => 0.3, // Mountains
+                    Some(BoundaryType::Divergent) => -0.2, // Rift valleys
+                    Some(BoundaryType::Transform) => 0.05, // Minor
+                    None => 0.0,
+                };
+
+                self.tiles[idx].elevation = (base_elev + boundary_boost).clamp(0.0, 1.0);
+            }
+        }
+    }
+
+    fn apply_noise_overlay(&mut self) {
+        // Domain warping: distort coordinates using secondary noise field
+        let warp_strength = 8.0; // Tunable: higher = more distorted coastlines
+
+        for row in 0..self.height {
+            for col in 0..self.width {
+                let idx = (row * self.width + col) as usize;
+
+                // Generate warp offsets from low-frequency noise
+                let warp_x = fbm(
+                    col as f32 * 0.02,
+                    row as f32 * 0.02,
+                    self.seed + 1000,
+                    2,
+                    1.0,
+                ) * warp_strength;
+                let warp_y = fbm(
+                    col as f32 * 0.02,
+                    row as f32 * 0.02,
+                    self.seed + 2000,
+                    2,
+                    1.0,
+                ) * warp_strength;
+
+                // Sample elevation noise at warped coordinates
+                let warped_col = col as f32 + warp_x;
+                let warped_row = row as f32 + warp_y;
+
+                // Multi-scale noise blending
+                let continent_scale =
+                    fbm(warped_col * 0.01, warped_row * 0.01, self.seed, 2, 1.0) * 0.4;
+                let regional_scale = fbm(
+                    warped_col * 0.05,
+                    warped_row * 0.05,
+                    self.seed + 100,
+                    4,
+                    1.0,
+                ) * 0.3;
+                let local_scale =
+                    fbm(warped_col * 0.2, warped_row * 0.2, self.seed + 200, 3, 1.0) * 0.1;
+
+                let noise = continent_scale + regional_scale + local_scale;
+                self.tiles[idx].elevation = (self.tiles[idx].elevation + noise).clamp(0.0, 1.0);
+
+                // Apply same warp to moisture for natural biome boundaries
+                let moisture_warp = fbm(
+                    warped_col * 0.03,
+                    warped_row * 0.03,
+                    self.seed + 300,
+                    3,
+                    1.0,
+                ) * 0.2;
+                self.tiles[idx].moisture =
+                    (self.tiles[idx].moisture + moisture_warp).clamp(0.0, 1.0);
+            }
+        }
+    }
+
+    fn generate_origin_points(&mut self, count: usize) {
+        let mut rng = (self.seed as u64, 0u64);
+        let mut attempts = 0;
+        let mut placed = 0;
+
+        while placed < count && attempts < 1000 {
+            let col = (hash2d(placed as i32, 0, self.seed) * self.width as f32) as i32;
+            let row = (hash2d(0, placed as i32, self.seed) * self.height as f32) as i32;
+
+            if let Some(idx) = tile_index(col, row, self.width) {
+                if idx < self.tiles.len() {
+                    let tile = &self.tiles[idx];
+                    // Only place in hospitable biomes
+                    if tile.elevation > 0.3
+                        && tile.biome != Biome::Desert
+                        && tile.biome != Biome::Tundra
+                    {
+                        // Check minimum distance from other origins
+                        let too_close = (0..placed).any(|i| {
+                            if let Some(existing_idx) =
+                                self.tiles.iter().position(|t| t.origin_point == Some(i))
+                            {
+                                let ec = self.tiles[existing_idx].col;
+                                let er = self.tiles[existing_idx].row;
+                                let dist = ((col - ec).pow(2) + (row - er).pow(2)) as f32;
+                                let dist = dist.sqrt();
+                                dist < 30.0
+                            } else {
+                                false
+                            }
+                        });
+
+                        if !too_close {
+                            self.tiles[idx].origin_point = Some(placed);
+                            placed += 1;
+                        }
+                    }
+                }
+            }
+            attempts += 1;
+        }
+        println!("[DEBUG] Origin points placed: {}", placed);
+    }
+
+    fn scatter_ruins(&mut self, count: usize) {
+        for i in 0..count {
+            let col = (hash2d(i as i32 + 1000, 0, self.seed) * self.width as f32) as i32;
+            let row = (hash2d(0, i as i32 + 1000, self.seed) * self.height as f32) as i32;
+
+            if let Some(idx) = tile_index(col, row, self.width) {
+                if idx < self.tiles.len() {
+                    let tile = &self.tiles[idx];
+                    // Only on land, not too extreme
+                    if tile.elevation > 0.3 && tile.elevation < 0.8 {
+                        let ruin_type = match i % 3 {
+                            0 => RuinType::Structure,
+                            1 => RuinType::Burial,
+                            _ => RuinType::Monument,
+                        };
+                        self.tiles[idx].ruin = Some(Ruin { ruin_type });
+                    }
+                }
+            }
+        }
+        println!("[DEBUG] Ruins scattered: {}", count);
+    }
+
+    fn place_legendary_resources(&mut self, count: usize) {
+        let names = vec![
+            "Dragon's Hoard",
+            "Elven Forge",
+            "Dwarven Deep",
+            "Ancient Vault",
+            "Titan's Cache",
+            "Godsblood Mine",
+            "Starfall Deposit",
+            "Void Crystal",
+        ];
+
+        for i in 0..count {
+            let col = (hash2d(i as i32 + 2000, 0, self.seed) * self.width as f32) as i32;
+            let row = (hash2d(0, i as i32 + 2000, self.seed) * self.height as f32) as i32;
+
+            if let Some(idx) = tile_index(col, row, self.width) {
+                if idx < self.tiles.len() {
+                    let tile = &self.tiles[idx];
+                    // Place in contestable areas (mid-elevation)
+                    if tile.elevation > 0.4 && tile.elevation < 0.7 {
+                        let name = names[i % names.len()].to_string();
+                        let resource_type = if i % 2 == 0 {
+                            ResourceType::Ore
+                        } else {
+                            ResourceType::Stone
+                        };
+                        self.tiles[idx].legendary_resource = Some(LegendaryResource {
+                            name,
+                            resource_type,
+                            richness: 1.0,
+                        });
+                    }
+                }
+            }
+        }
+        println!("[DEBUG] Legendary resources placed: {}", count);
+    }
+
+    fn add_special_biome_variants(&mut self, count: usize) {
+        for i in 0..count {
+            let col = (hash2d(i as i32 + 3000, 0, self.seed) * self.width as f32) as i32;
+            let row = (hash2d(0, i as i32 + 3000, self.seed) * self.height as f32) as i32;
+
+            if let Some(idx) = tile_index(col, row, self.width) {
+                if idx < self.tiles.len() {
+                    let tile = &self.tiles[idx];
+                    let variant = match tile.biome {
+                        Biome::Mountain | Biome::SnowMountain => SpecialBiomeVariant::CrystalCavern,
+                        Biome::Desert => SpecialBiomeVariant::Oasis,
+                        Biome::Tundra => SpecialBiomeVariant::Aurora,
+                        _ => continue, // Skip if not a suitable biome
+                    };
+                    self.tiles[idx].special_variant = variant;
+                }
+            }
+        }
+        println!("[DEBUG] Special biome variants added: {}", count);
+    }
+
+    pub fn get_tile(&self, col: i32, row: i32) -> Option<&HexTile> {
         let idx = tile_index(col, row, self.width)?;
         self.tiles.get(idx)
     }
@@ -549,57 +786,71 @@ impl World {
         }
     }
 
-    // O(n) multi-source BFS flood-fill from all ocean tiles
     fn apply_moisture_falloff(&mut self) {
-        let max_dist = 15.0_f32;
-        let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::new();
-        let mut dist_map = vec![f32::MAX; (self.width * self.height) as usize];
+        // Wind-driven moisture with rain shadow
+        // Pick a global wind direction (e.g., west-to-east)
+        let wind_dx = 1.0; // Wind blows in +x direction
+        let wind_dy = 0.0;
 
-        // Seed BFS from all ocean tiles
+        // Process tiles in wind order (left-to-right for west-to-east wind)
+        let mut moisture_map = vec![0.5_f32; (self.width * self.height) as usize];
+
+        // Initialize ocean tiles with high moisture
         for row in 0..self.height {
             for col in 0..self.width {
-                let idx = tile_index(col, row, self.width).unwrap();
+                let idx = (row * self.width + col) as usize;
                 if self.tiles[idx].elevation < OCEAN_CUTOFF {
-                    dist_map[idx] = 0.0;
-                    queue.push_back((col, row));
+                    moisture_map[idx] = 0.8; // Ocean = very moist
                 }
             }
         }
 
-        // BFS outward from ocean
-        while let Some((col, row)) = queue.pop_front() {
-            let idx = tile_index(col, row, self.width).unwrap();
-            let dist = dist_map[idx];
-            if dist >= max_dist {
-                continue;
-            }
-            for (nc, nr) in hex_neighbors(col, row) {
-                if nr < 0 || nr >= self.height {
-                    continue;
+        // Sweep moisture across map in wind direction
+        // For west-to-east wind, process columns left to right
+        for col in 0..self.width {
+            for row in 0..self.height {
+                let idx = (row * self.width + col) as usize;
+                let tile = &self.tiles[idx];
+
+                if tile.elevation < OCEAN_CUTOFF {
+                    continue; // Ocean already initialized
                 }
-                if let Some(nidx) = tile_index(nc, nr, self.width) {
-                    if nidx < dist_map.len() && dist_map[nidx] == f32::MAX {
-                        dist_map[nidx] = dist + 1.0;
-                        queue.push_back((nc, nr));
+
+                // Get moisture from upwind neighbor
+                let upwind_col = col - 1; // West neighbor for east-blowing wind
+                let upwind_idx = if upwind_col >= 0 {
+                    tile_index(upwind_col, row, self.width)
+                } else {
+                    None
+                };
+
+                let upwind_moisture = if let Some(ui) = upwind_idx {
+                    moisture_map[ui]
+                } else {
+                    0.5 // Edge of map
+                };
+
+                // Moisture decreases when crossing elevation gains (rain shadow)
+                let elevation_penalty = if upwind_idx.is_some() {
+                    let upwind_elev = self.tiles[upwind_idx.unwrap()].elevation;
+                    let elev_gain = tile.elevation - upwind_elev;
+                    if elev_gain > 0.0 {
+                        elev_gain * 0.5 // Mountains wring out moisture
+                    } else {
+                        0.0
                     }
-                }
+                } else {
+                    0.0
+                };
+
+                // Calculate final moisture
+                let moisture = (upwind_moisture - elevation_penalty).clamp(0.0, 1.0);
+                moisture_map[idx] = moisture;
+                self.tiles[idx].moisture = moisture;
             }
         }
 
-        // Apply moisture bonus based on BFS distance
-        for row in 0..self.height {
-            for col in 0..self.width {
-                let idx = tile_index(col, row, self.width).unwrap();
-                if self.tiles[idx].elevation < OCEAN_CUTOFF {
-                    continue;
-                }
-                let dist = dist_map[idx];
-                if dist < max_dist {
-                    let bonus = (1.0 - dist / max_dist) * 0.3;
-                    self.tiles[idx].moisture = (self.tiles[idx].moisture + bonus).clamp(0.0, 1.0);
-                }
-            }
-        }
+        println!("[DEBUG] Wind-driven moisture applied (rain shadow enabled)");
     }
 
     fn assign_biomes(&mut self) {
@@ -622,50 +873,107 @@ impl World {
     }
 
     fn trace_rivers(&mut self) {
-        let perlin = Perlin::new(layer_seed(self.seed, RIVER_SEED_OFFSET));
-        for row in 0..self.height {
-            for col in 0..self.width {
-                let idx = tile_index(col, row, self.width).unwrap();
-                if self.tiles[idx].elevation < 0.75 || self.tiles[idx].is_river {
-                    continue;
+        // Hydraulic erosion: simulate water droplets flowing downhill
+        // This creates branching river networks and carves valleys
+        let droplet_count = ((self.width * self.height) / 100).max(100) as usize;
+        let erosion_rate = 0.01; // How much elevation each droplet removes
+        let deposit_rate = 0.005; // How much elevation each droplet deposits
+        let min_erosion_threshold = 0.05; // Minimum erosion to mark as river
+
+        let mut erosion_map = vec![0.0_f32; (self.width * self.height) as usize];
+
+        // Drop droplets from random elevated points
+        for i in 0..droplet_count {
+            // Find a random elevated starting point
+            let mut attempts = 0;
+            let mut start_col = 0;
+            let mut start_row = 0;
+
+            while attempts < 100 {
+                start_col =
+                    (hash2d(i as i32, attempts, self.seed + 5000) * self.width as f32) as i32;
+                start_row =
+                    (hash2d(attempts, i as i32, self.seed + 6000) * self.height as f32) as i32;
+
+                if let Some(idx) = tile_index(start_col, start_row, self.width) {
+                    if idx < self.tiles.len() && self.tiles[idx].elevation > 0.5 {
+                        break;
+                    }
                 }
-                if perlin_roll(&perlin, col as f64 * RIVER_SCALE, row as f64 * RIVER_SCALE) < 0.1 {
-                    continue;
-                }
-                self.tiles[idx].is_river = true;
-                let mut current = (col, row);
-                let mut visited = std::collections::HashSet::new();
-                visited.insert(current);
-                loop {
-                    let current_idx = match tile_index(current.0, current.1, self.width) {
-                        Some(i) => i,
-                        None => break,
-                    };
-                    let mut lowest = self.tiles[current_idx].elevation;
-                    let mut next = None;
-                    for (nc, nr) in hex_neighbors(current.0, current.1) {
-                        if visited.contains(&(nc, nr)) {
-                            continue;
-                        }
-                        if let Some(t) = self.get_tile(nc, nr) {
-                            if t.elevation < lowest {
-                                lowest = t.elevation;
-                                next = Some((nc, nr));
+                attempts += 1;
+            }
+
+            if attempts >= 100 {
+                continue;
+            }
+
+            // Simulate droplet flowing downhill
+            let mut col = start_col;
+            let mut row = start_row;
+            let mut water = 1.0;
+            let mut speed = 1.0;
+            let mut path = Vec::new();
+
+            while water > 0.01 {
+                if let Some(idx) = tile_index(col, row, self.width) {
+                    if idx >= self.tiles.len() {
+                        break;
+                    }
+
+                    path.push((col, row));
+                    let current_elev = self.tiles[idx].elevation;
+
+                    // Find steepest downhill neighbor
+                    let mut lowest_elev = current_elev;
+                    let mut lowest_neighbor = None;
+
+                    for (nc, nr) in hex_neighbors(col, row) {
+                        if let Some(nidx) = tile_index(nc, nr, self.width) {
+                            if nidx < self.tiles.len() {
+                                let neighbor_elev = self.tiles[nidx].elevation;
+                                if neighbor_elev < lowest_elev {
+                                    lowest_elev = neighbor_elev;
+                                    lowest_neighbor = Some((nc, nr));
+                                }
                             }
                         }
                     }
-                    match next {
-                        Some((nc, nr)) => {
-                            let idx = tile_index(nc, nr, self.width).unwrap();
-                            self.tiles[idx].is_river = true;
-                            visited.insert((nc, nr));
-                            current = (nc, nr);
-                        }
-                        None => break,
+
+                    // Erode current tile
+                    let erosion = erosion_rate * speed * water;
+                    erosion_map[idx] += erosion;
+                    self.tiles[idx].elevation = (current_elev - erosion).max(0.0);
+
+                    // Move to lowest neighbor or stop
+                    if let Some((nc, nr)) = lowest_neighbor {
+                        col = nc;
+                        row = nr;
+                        speed = (speed + 0.1).min(2.0); // Accelerate downhill
+                        water *= 0.98; // Lose some water
+                    } else {
+                        // Deposit sediment at local minimum
+                        let deposit = deposit_rate * water;
+                        self.tiles[idx].elevation = (current_elev + deposit).min(1.0);
+                        break;
                     }
+                } else {
+                    break;
                 }
             }
         }
+
+        // Mark heavily eroded tiles as rivers
+        for idx in 0..self.tiles.len() {
+            if erosion_map[idx] > min_erosion_threshold {
+                self.tiles[idx].is_river = true;
+            }
+        }
+
+        let river_count = self.tiles.iter().filter(|t| t.is_river).count();
+        println!(
+            "[DEBUG] Hydraulic erosion complete: {} river tiles",
+            river_count
+        );
     }
 
     fn place_resources(&mut self) {
@@ -771,6 +1079,67 @@ pub fn draw_world(world: &World, cam_target_x: f32, cam_target_y: f32, cam_zoom:
             let dot_radius = 1.5 + res.richness * 2.0;
             draw_circle(center.x, center.y, dot_radius, res.resource_type.color());
         }
+
+        // Draw legendary resources (gold star)
+        if let Some(ref leg) = tile.legendary_resource {
+            let star_size = 4.0;
+            draw_circle(
+                center.x,
+                center.y,
+                star_size,
+                Color::from_rgba(255, 215, 0, 255),
+            );
+        }
+
+        // Draw ruins (gray square)
+        if let Some(ref ruin) = tile.ruin {
+            let ruin_size = 3.0;
+            draw_rectangle(
+                center.x - ruin_size,
+                center.y - ruin_size,
+                ruin_size * 2.0,
+                ruin_size * 2.0,
+                Color::from_rgba(128, 128, 128, 200),
+            );
+        }
+
+        // Draw trees on forest/jungle/taiga tiles (only when zoomed in)
+        if cam_zoom > 1.5 {
+            let has_trees = matches!(
+                tile.biome,
+                Biome::TemperateForest | Biome::Jungle | Biome::Taiga | Biome::HighlandForest
+            );
+            if has_trees {
+                // Draw 2-3 small triangles per tile
+                let tree_count = if tile.biome == Biome::Jungle { 3 } else { 2 };
+                for t in 0..tree_count {
+                    let angle = (t as f32 / tree_count as f32) * std::f32::consts::TAU;
+                    let offset_x = angle.cos() * 4.0;
+                    let offset_y = angle.sin() * 4.0;
+                    let tree_x = center.x + offset_x;
+                    let tree_y = center.y + offset_y;
+                    let tree_size = 2.5;
+                    // Simple triangle tree
+                    draw_triangle(
+                        vec2(tree_x, tree_y - tree_size),
+                        vec2(tree_x - tree_size * 0.7, tree_y + tree_size * 0.5),
+                        vec2(tree_x + tree_size * 0.7, tree_y + tree_size * 0.5),
+                        Color::from_rgba(34, 120, 34, 220),
+                    );
+                }
+            }
+        }
+
+        // Draw origin point marker (glowing circle)
+        if tile.origin_point.is_some() {
+            draw_circle(
+                center.x,
+                center.y,
+                5.0,
+                Color::from_rgba(255, 255, 100, 180),
+            );
+            draw_circle(center.x, center.y, 3.0, Color::from_rgba(255, 200, 0, 255));
+        }
     }
 
     // Draw simplified coastline (only at higher zoom)
@@ -845,4 +1214,78 @@ pub fn draw_world(world: &World, cam_target_x: f32, cam_target_y: f32, cam_zoom:
 #[allow(dead_code)]
 pub fn hex_center_world(col: i32, row: i32, hex_size: f32) -> Vec2 {
     hex_center(col, row, hex_size)
+}
+
+// Convert screen coordinates to world coordinates
+pub fn screen_to_world(
+    screen_x: f32,
+    screen_y: f32,
+    cam_target_x: f32,
+    cam_target_y: f32,
+    cam_zoom: f32,
+) -> Vec2 {
+    let sw = screen_width();
+    let sh = screen_height();
+    // Reverse the camera transform
+    let world_x = (screen_x - sw / 2.0) / cam_zoom + cam_target_x;
+    let world_y = (screen_y - sh / 2.0) / cam_zoom + cam_target_y;
+    vec2(world_x, world_y)
+}
+
+// Find which tile is at the given world position
+pub fn find_tile_at(
+    world_x: f32,
+    world_y: f32,
+    width: i32,
+    height: i32,
+    hex_size: f32,
+) -> Option<(i32, i32)> {
+    // Reverse hex_center calculation
+    // x = size * (sqrt(3) * col + sqrt(3)/2 * (row & 1))
+    // y = size * 1.5 * row
+
+    let row = (world_y / (hex_size * 1.5)).round() as i32;
+    let row = row.max(0).min(height - 1);
+
+    let parity = row & 1;
+    let offset = if parity == 1 {
+        hex_size * 3.0_f32.sqrt() / 2.0
+    } else {
+        0.0
+    };
+    let col = ((world_x - offset) / (hex_size * 3.0_f32.sqrt())).round() as i32;
+    let col = col.max(0).min(width - 1);
+
+    Some((col, row))
+}
+
+// Get tooltip text for a tile
+pub fn get_tile_tooltip(tile: &HexTile) -> Option<String> {
+    let mut parts = Vec::new();
+
+    if let Some(ref res) = tile.resource {
+        parts.push(format!("{:?}", res.resource_type));
+    }
+
+    if let Some(ref leg) = tile.legendary_resource {
+        parts.push(format!("★ {}", leg.name));
+    }
+
+    if let Some(ref ruin) = tile.ruin {
+        parts.push(format!("Ruin: {:?}", ruin.ruin_type));
+    }
+
+    if tile.origin_point.is_some() {
+        parts.push("Origin Point".to_string());
+    }
+
+    if tile.is_river {
+        parts.push("River".to_string());
+    }
+
+    if !parts.is_empty() {
+        Some(parts.join(", "))
+    } else {
+        None
+    }
 }

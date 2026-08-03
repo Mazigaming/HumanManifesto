@@ -78,6 +78,49 @@ async fn main() {
                 renderer.draw_world(&sim.world, sim_camera.target_x, sim_camera.target_y, sim_camera.zoom);
                 set_default_camera();
                 ui.draw(sim);
+
+                // Hover tooltip for resources/features
+                let mouse_pos = mouse_position();
+                let world_pos = world::screen_to_world(
+                    mouse_pos.0,
+                    mouse_pos.1,
+                    sim_camera.target_x,
+                    sim_camera.target_y,
+                    sim_camera.zoom,
+                );
+
+                if let Some((col, row)) = world::find_tile_at(
+                    world_pos.x,
+                    world_pos.y,
+                    sim.world.width,
+                    sim.world.height,
+                    HEX_SIZE,
+                ) {
+                    if let Some(tile) = sim.world.get_tile(col, row) {
+                        if let Some(tooltip) = world::get_tile_tooltip(tile) {
+                            // Draw tooltip background
+                            let tooltip_size = measure_text(&tooltip, None, 20, 1.0);
+                            let tooltip_x = mouse_pos.0 + 10.0;
+                            let tooltip_y = mouse_pos.1 - 10.0;
+
+                            draw_rectangle(
+                                tooltip_x - 5.0,
+                                tooltip_y - 20.0,
+                                tooltip_size.width + 10.0,
+                                25.0,
+                                Color::from_rgba(0, 0, 0, 200),
+                            );
+
+                            draw_text(
+                                &tooltip,
+                                tooltip_x,
+                                tooltip_y,
+                                20.0,
+                                WHITE,
+                            );
+                        }
+                    }
+                }
             }
         }
 
