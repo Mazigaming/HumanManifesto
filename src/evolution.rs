@@ -5,6 +5,7 @@ use std::collections::HashMap;
 pub struct EvolutionSim {
     pub agents: Vec<Agent>,
     next_id: u64,
+    next_lineage_id: u32,
     pub tick_count: u64,
     pub disease_outbreaks: u32,
     pub total_births: u64,
@@ -25,6 +26,7 @@ impl EvolutionSim {
         EvolutionSim {
             agents: Vec::new(),
             next_id: 1,
+            next_lineage_id: 1,
             tick_count: 0,
             disease_outbreaks: 0,
             total_births: 0,
@@ -40,15 +42,22 @@ impl EvolutionSim {
 
     pub fn spawn_agent(&mut self, col: i32, row: i32, genome: Genome) -> u64 {
         let id = self.next_id;
+        let lineage_id = self.next_lineage_id;
         self.next_id += 1;
-        self.agents.push(Agent::new(id, col, row, genome));
+        self.agents
+            .push(Agent::new(id, lineage_id, col, row, genome));
         id
     }
 
     pub fn spawn_population(&mut self, col: i32, row: i32, count: usize) {
+        let lineage_id = self.next_lineage_id;
+        self.next_lineage_id += 1;
         for _ in 0..count {
             let genome = Genome::random();
-            self.spawn_agent(col, row, genome);
+            let id = self.next_id;
+            self.next_id += 1;
+            self.agents
+                .push(Agent::new(id, lineage_id, col, row, genome));
         }
     }
 
@@ -477,6 +486,7 @@ impl EvolutionSim {
         let mate_genome;
         let agent_genome_copy;
         let agent_fertility;
+        let agent_lineage;
         let col;
         let row;
         {
@@ -485,6 +495,7 @@ impl EvolutionSim {
             mate_genome = mate.genome;
             agent_genome_copy = agent.genome;
             agent_fertility = agent.genome.fertility;
+            agent_lineage = agent.lineage_id;
             col = (agent.col + mate.col) / 2;
             row = (agent.row + mate.row) / 2;
         }
@@ -497,7 +508,7 @@ impl EvolutionSim {
 
         for _ in 0..twin_count {
             let child_genome = Genome::blend(&agent_genome_copy, &mate_genome, mutation_rate);
-            let mut child = Agent::new(self.next_id, col, row, child_genome);
+            let mut child = Agent::new(self.next_id, agent_lineage, col, row, child_genome);
             if rand_f32() < 0.02 {
                 child.large_mutation = true;
                 child.highlight_timer = 120;

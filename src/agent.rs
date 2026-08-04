@@ -160,6 +160,7 @@ pub struct DiseaseState {
 #[derive(Clone, Copy, Debug)]
 pub struct Agent {
     pub id: u64,
+    pub lineage_id: u32,
     pub genome: Genome,
     pub energy: f32,
     pub max_energy: f32,
@@ -178,10 +179,11 @@ pub struct Agent {
 }
 
 impl Agent {
-    pub fn new(id: u64, col: i32, row: i32, genome: Genome) -> Self {
+    pub fn new(id: u64, lineage_id: u32, col: i32, row: i32, genome: Genome) -> Self {
         let max_energy = 80.0 + genome.strength * 40.0;
         Agent {
             id,
+            lineage_id,
             genome,
             energy: max_energy * 0.7,
             max_energy,
