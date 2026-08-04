@@ -1,6 +1,7 @@
 mod agent;
 mod camera;
 mod evolution;
+mod lineage;
 mod render;
 mod sim;
 mod ui;

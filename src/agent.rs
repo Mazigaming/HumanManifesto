@@ -180,14 +180,14 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(id: u64, lineage_id: u32, col: i32, row: i32, genome: Genome) -> Self {
-        let max_energy = 80.0 + genome.strength * 40.0;
+        let max_energy = 100.0 + genome.strength * 50.0;
         Agent {
             id,
             lineage_id,
             genome,
-            energy: max_energy * 0.7,
+            energy: max_energy * 0.9,
             max_energy,
-            hydration: 80.0,
+            hydration: 90.0,
             health: 100.0,
             age: 0,
             col,

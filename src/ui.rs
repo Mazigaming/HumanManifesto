@@ -85,5 +85,50 @@ impl UI {
             14.0,
             Color::from_rgba(180, 180, 180, 180),
         );
+
+        // Chronicle section in sidebar
+        let chronicle_title_y = top_h + 80.0;
+        draw_text(
+            "CHRONICLE",
+            10.0,
+            chronicle_title_y,
+            16.0,
+            Color::from_rgba(255, 220, 100, 255),
+        );
+
+        // Show last 8 chronicle entries
+        let chronicle_start_y = chronicle_title_y + 20.0;
+        let max_entries = 8;
+        let entries_to_show = sim.evo.chronicle.len().min(max_entries);
+        let start_idx = sim.evo.chronicle.len().saturating_sub(max_entries);
+
+        for (i, idx) in (start_idx..sim.evo.chronicle.len()).enumerate() {
+            let y = chronicle_start_y + (i as f32 * 18.0);
+            let entry = &sim.evo.chronicle[idx];
+            // Truncate long entries
+            let display_text = if entry.len() > 28 {
+                format!("{}...", &entry[..25])
+            } else {
+                entry.clone()
+            };
+            draw_text(
+                &display_text,
+                10.0,
+                y,
+                12.0,
+                Color::from_rgba(200, 200, 200, 200),
+            );
+        }
+
+        // Lineage count
+        let lineage_y = chronicle_start_y + (max_entries as f32 * 18.0) + 10.0;
+        let lineage_text = format!("Lineages: {}", sim.evo.lineages.len());
+        draw_text(
+            &lineage_text,
+            10.0,
+            lineage_y,
+            14.0,
+            Color::from_rgba(150, 200, 255, 255),
+        );
     }
 }

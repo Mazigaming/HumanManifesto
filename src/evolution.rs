@@ -1,15 +1,29 @@
 use crate::agent::*;
+use crate::lineage::{generate_lineage_name, Lineage};
 use crate::world::*;
 use std::collections::HashMap;
 
+// Sector for regional carrying capacity
+#[derive(Clone, Debug)]
+pub struct Sector {
+    pub col_start: i32,
+    pub row_start: i32,
+    pub capacity: f32,
+    pub current_load: usize,
+}
+
 pub struct EvolutionSim {
     pub agents: Vec<Agent>,
+    pub lineages: Vec<Lineage>,
+    pub sectors: Vec<Sector>,
+    pub sector_size: i32,
     next_id: u64,
     next_lineage_id: u32,
     pub tick_count: u64,
     pub disease_outbreaks: u32,
     pub total_births: u64,
     pub total_deaths: u64,
+    pub chronicle: Vec<String>,
     // Spatial grid for O(1) agent lookups
     spatial_grid: HashMap<(i32, i32), Vec<usize>>,
     cell_size: i32,
@@ -25,18 +39,102 @@ impl EvolutionSim {
     pub fn new() -> Self {
         EvolutionSim {
             agents: Vec::new(),
+            lineages: Vec::new(),
+            sectors: Vec::new(),
+            sector_size: 20,
             next_id: 1,
             next_lineage_id: 1,
             tick_count: 0,
             disease_outbreaks: 0,
             total_births: 0,
             total_deaths: 0,
+            chronicle: Vec::new(),
             spatial_grid: HashMap::new(),
             cell_size: 10,
             resource_cache: HashMap::new(),
             water_cache: HashMap::new(),
             to_remove: Vec::with_capacity(256),
             neighbors_buf: Vec::with_capacity(64),
+        }
+    }
+
+    // Build sector grid based on world resource richness
+    pub fn build_sectors(&mut self, world: &World) {
+        self.sectors.clear();
+        let cols = (world.width + self.sector_size - 1) / self.sector_size;
+        let rows = (world.height + self.sector_size - 1) / self.sector_size;
+
+        for r in 0..rows {
+            for c in 0..cols {
+                let col_start = c * self.sector_size;
+                let row_start = r * self.sector_size;
+                let col_end = ((c + 1) * self.sector_size).min(world.width);
+                let row_end = ((r + 1) * self.sector_size).min(world.height);
+
+                // Calculate capacity based on resource richness
+                let mut total_richness = 0.0;
+                let mut land_tiles = 0;
+                for row in row_start..row_end {
+                    for col in col_start..col_end {
+                        if let Some(tile) = world.get_tile(col, row) {
+                            if tile.elevation >= 0.3 {
+                                land_tiles += 1;
+                                if let Some(ref res) = tile.resource {
+                                    total_richness += res.richness;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Base capacity: 5 agents per land tile + bonus from resources
+                let capacity = (land_tiles as f32 * 5.0 + total_richness * 10.0).max(1.0);
+
+                self.sectors.push(Sector {
+                    col_start,
+                    row_start,
+                    capacity,
+                    current_load: 0,
+                });
+            }
+        }
+    }
+
+    // Update sector loads based on current agent positions
+    pub fn update_sector_loads(&mut self) {
+        for sector in &mut self.sectors {
+            sector.current_load = 0;
+        }
+
+        for agent in &self.agents {
+            let sector_col = agent.col / self.sector_size;
+            let sector_row = agent.row / self.sector_size;
+            let cols = (200 + self.sector_size - 1) / self.sector_size; // Use world width
+            let sector_idx = (sector_row * cols + sector_col) as usize;
+            if sector_idx < self.sectors.len() {
+                self.sectors[sector_idx].current_load += 1;
+            }
+        }
+    }
+
+    // Get overcrowding multiplier for a position (1.0 = normal, >1.0 = stressed)
+    pub fn get_overcrowding_multiplier(&self, col: i32, row: i32) -> f32 {
+        let sector_col = col / self.sector_size;
+        let sector_row = row / self.sector_size;
+        let cols = (200 + self.sector_size - 1) / self.sector_size;
+        let sector_idx = (sector_row * cols + sector_col) as usize;
+
+        if sector_idx < self.sectors.len() {
+            let sector = &self.sectors[sector_idx];
+            let load_ratio = sector.current_load as f32 / sector.capacity;
+            if load_ratio > 1.0 {
+                // Exponential increase in stress
+                1.0 + (load_ratio - 1.0).powi(2) * 2.0
+            } else {
+                1.0
+            }
+        } else {
+            1.0
         }
     }
 
@@ -51,7 +149,21 @@ impl EvolutionSim {
 
     pub fn spawn_population(&mut self, col: i32, row: i32, count: usize) {
         let lineage_id = self.next_lineage_id;
+        let lineage_name = generate_lineage_name(self.tick_count * 1000 + lineage_id as u64);
+        let initial_genome = Genome::random();
+
+        // Create root lineage
+        let lineage = Lineage::new(
+            lineage_id,
+            None, // Root lineage has no parent
+            lineage_name.clone(),
+            self.tick_count,
+            initial_genome,
+        );
+        self.lineages.push(lineage);
         self.next_lineage_id += 1;
+
+        // Spawn agents with this lineage
         for _ in 0..count {
             let genome = Genome::random();
             let id = self.next_id;
@@ -59,6 +171,12 @@ impl EvolutionSim {
             self.agents
                 .push(Agent::new(id, lineage_id, col, row, genome));
         }
+
+        // Log the founding
+        self.chronicle.push(format!(
+            "Lineage {} founded at ({}, {}) with {} individuals",
+            lineage_name, col, row, count
+        ));
     }
 
     // Build spatial grid for O(1) agent lookups
@@ -89,14 +207,253 @@ impl EvolutionSim {
         }
     }
 
+    // Update lineage centroids and record population history
+    fn update_lineages(&mut self) {
+        // Group agents by lineage
+        let mut lineage_agents: HashMap<u32, Vec<usize>> = HashMap::new();
+        for (i, agent) in self.agents.iter().enumerate() {
+            lineage_agents
+                .entry(agent.lineage_id)
+                .or_insert_with(Vec::new)
+                .push(i);
+        }
+
+        // Update each lineage
+        for lineage in &mut self.lineages {
+            if let Some(agent_indices) = lineage_agents.get(&lineage.id) {
+                let genomes: Vec<Genome> = agent_indices
+                    .iter()
+                    .map(|&i| self.agents[i].genome)
+                    .collect();
+                lineage.update_centroid(&genomes);
+            } else {
+                lineage.member_count = 0;
+                lineage.is_extinct = true;
+            }
+            lineage.record_population(self.tick_count);
+        }
+
+        // Log extinctions
+        for lineage in &self.lineages {
+            if lineage.is_extinct && lineage.member_count == 0 {
+                let msg = format!(
+                    "Lineage {} has gone extinct after {} days",
+                    lineage.name,
+                    self.tick_count - lineage.founding_tick
+                );
+                if !self.chronicle.contains(&msg) {
+                    self.chronicle.push(msg);
+                }
+            }
+        }
+    }
+
+    // Check for speciation splits based on genetic distance
+    fn check_speciation(&mut self) {
+        let split_threshold = 0.35; // Genetic distance threshold for split
+        let min_split_count = 5; // Minimum agents needed for a new lineage
+        let min_split_pct = 0.15; // Minimum percentage of lineage for split
+        let persistence_required = 3; // Checks needed to confirm split
+
+        // Track candidate splits across checks
+        let mut candidate_groups: HashMap<u32, Vec<(u32, Vec<usize>)>> = HashMap::new();
+
+        for lineage in &self.lineages {
+            if lineage.is_extinct || lineage.member_count < 10 {
+                continue;
+            }
+
+            // Get agents in this lineage
+            let agent_indices: Vec<usize> = self
+                .agents
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| a.lineage_id == lineage.id)
+                .map(|(i, _)| i)
+                .collect();
+
+            if agent_indices.len() < 10 {
+                continue;
+            }
+
+            // Group agents by distance from centroid
+            let mut near_centroid: Vec<usize> = Vec::new();
+            let mut far_from_centroid: Vec<usize> = Vec::new();
+
+            for &idx in &agent_indices {
+                let distance = lineage.genetic_distance(&self.agents[idx].genome);
+                if distance < split_threshold {
+                    near_centroid.push(idx);
+                } else {
+                    far_from_centroid.push(idx);
+                }
+            }
+
+            // Check if far group qualifies as split candidate
+            let far_count = far_from_centroid.len();
+            let far_pct = far_count as f32 / agent_indices.len() as f32;
+
+            if far_count >= min_split_count && far_pct >= min_split_pct {
+                // Check internal cohesion of far group
+                let avg_pairwise_dist = self.average_pairwise_distance(&far_from_centroid);
+                if avg_pairwise_dist < split_threshold * 0.7 {
+                    // Valid candidate - track it
+                    candidate_groups
+                        .entry(lineage.id)
+                        .or_insert_with(Vec::new)
+                        .push((lineage.id, far_from_centroid));
+                }
+            }
+        }
+
+        // Process confirmed splits
+        for (lineage_id, candidates) in &candidate_groups {
+            if candidates.len() >= persistence_required {
+                // Take the most recent candidate
+                if let Some((_, far_group)) = candidates.last() {
+                    self.finalize_split(*lineage_id, far_group.clone());
+                }
+            }
+        }
+    }
+
+    // Calculate average pairwise genetic distance within a group
+    fn average_pairwise_distance(&self, agent_indices: &[usize]) -> f32 {
+        if agent_indices.len() < 2 {
+            return 0.0;
+        }
+
+        let mut total_dist = 0.0;
+        let mut count = 0;
+
+        for i in 0..agent_indices.len() {
+            for j in (i + 1)..agent_indices.len() {
+                let g1 = &self.agents[agent_indices[i]].genome;
+                let g2 = &self.agents[agent_indices[j]].genome;
+                let dist = ((g1.speed - g2.speed).powi(2)
+                    + (g1.strength - g2.strength).powi(2)
+                    + (g1.fertility - g2.fertility).powi(2)
+                    + (g1.metabolism - g2.metabolism).powi(2)
+                    + (g1.aggression - g2.aggression).powi(2)
+                    + (g1.sociability - g2.sociability).powi(2)
+                    + (g1.camouflage - g2.camouflage).powi(2)
+                    + (g1.lifespan - g2.lifespan).powi(2)
+                    + (g1.sight_range - g2.sight_range).powi(2)
+                    + (g1.cold_tolerance - g2.cold_tolerance).powi(2)
+                    + (g1.heat_tolerance - g2.heat_tolerance).powi(2))
+                .sqrt()
+                    / 3.162;
+                total_dist += dist;
+                count += 1;
+            }
+        }
+
+        if count > 0 {
+            total_dist / count as f32
+        } else {
+            0.0
+        }
+    }
+
+    // Finalize a speciation split
+    fn finalize_split(&mut self, parent_lineage_id: u32, far_group: Vec<usize>) {
+        // Create new lineage
+        let new_lineage_id = self.next_lineage_id;
+        self.next_lineage_id += 1;
+
+        let new_name = generate_lineage_name(self.tick_count * 1000 + new_lineage_id as u64);
+
+        // Compute initial centroid from far group
+        let genomes: Vec<Genome> = far_group.iter().map(|&i| self.agents[i].genome).collect();
+
+        let mut initial_centroid = Genome {
+            speed: 0.0,
+            strength: 0.0,
+            fertility: 0.0,
+            metabolism: 0.0,
+            aggression: 0.0,
+            sociability: 0.0,
+            camouflage: 0.0,
+            lifespan: 0.0,
+            sight_range: 0.0,
+            cold_tolerance: 0.0,
+            heat_tolerance: 0.0,
+        };
+
+        let count = genomes.len() as f32;
+        for g in &genomes {
+            initial_centroid.speed += g.speed;
+            initial_centroid.strength += g.strength;
+            initial_centroid.fertility += g.fertility;
+            initial_centroid.metabolism += g.metabolism;
+            initial_centroid.aggression += g.aggression;
+            initial_centroid.sociability += g.sociability;
+            initial_centroid.camouflage += g.camouflage;
+            initial_centroid.lifespan += g.lifespan;
+            initial_centroid.sight_range += g.sight_range;
+            initial_centroid.cold_tolerance += g.cold_tolerance;
+            initial_centroid.heat_tolerance += g.heat_tolerance;
+        }
+
+        initial_centroid.speed /= count;
+        initial_centroid.strength /= count;
+        initial_centroid.fertility /= count;
+        initial_centroid.metabolism /= count;
+        initial_centroid.aggression /= count;
+        initial_centroid.sociability /= count;
+        initial_centroid.camouflage /= count;
+        initial_centroid.lifespan /= count;
+        initial_centroid.sight_range /= count;
+        initial_centroid.cold_tolerance /= count;
+        initial_centroid.heat_tolerance /= count;
+
+        let new_lineage = Lineage::new(
+            new_lineage_id,
+            Some(parent_lineage_id),
+            new_name.clone(),
+            self.tick_count,
+            initial_centroid,
+        );
+        self.lineages.push(new_lineage);
+
+        // Reassign agents to new lineage
+        for &idx in &far_group {
+            self.agents[idx].lineage_id = new_lineage_id;
+        }
+
+        // Log the split
+        let msg = format!(
+            "Lineage {} splits from parent — {} individuals diverge",
+            new_name,
+            far_group.len()
+        );
+        self.chronicle.push(msg);
+    }
+
     pub fn tick(&mut self, world: &World) {
         self.tick_count += 1;
 
-        // Build spatial indexes every tick (required for correctness when agents die)
-        self.build_spatial_grid();
+        // Build sectors once at start
+        if self.tick_count == 1 {
+            self.build_sectors(world);
+        }
+
+        // Build spatial indexes every 10 ticks for performance
+        // Safe because we process deaths at end of tick, so indices stay valid
+        if self.tick_count % 10 == 0 {
+            self.build_spatial_grid();
+        }
         if self.tick_count % 10 == 0 {
             // Rebuild caches every 10 ticks (resources change slowly)
             self.build_caches(world);
+            // Update sector loads every 10 ticks
+            self.update_sector_loads();
+        }
+
+        // Update lineage centroids and check for speciation every 100 ticks
+        if self.tick_count % 100 == 0 {
+            self.update_lineages();
+            self.check_speciation();
         }
 
         // Clear reusable vectors
@@ -104,6 +461,11 @@ impl EvolutionSim {
 
         // Update each agent
         for i in 0..self.agents.len() {
+            // Extract position first for overcrowding calculation
+            let agent_col = self.agents[i].col;
+            let agent_row = self.agents[i].row;
+            let overcrowding = self.get_overcrowding_multiplier(agent_col, agent_row);
+
             let agent = &mut self.agents[i];
 
             // Age
@@ -120,53 +482,56 @@ impl EvolutionSim {
                 agent.highlight_timer -= 1;
             }
 
-            // Energy drain (metabolism + sight range passive cost)
-            let energy_drain = 0.5 + agent.genome.metabolism * 0.3 + agent.genome.sight_range * 0.2;
+            // Energy drain (reduced for better survival)
+            let energy_drain =
+                0.15 + agent.genome.metabolism * 0.1 + agent.genome.sight_range * 0.05;
             agent.energy -= energy_drain;
 
-            // Hydration drain
-            agent.hydration -= 0.3;
+            // Hydration drain (reduced)
+            agent.hydration -= 0.1;
 
-            // Environmental hazard damage (temperature mismatch)
-            if let Some(tile) = world.get_tile(agent.col, agent.row) {
+            // Environmental hazard damage (temperature mismatch, reduced)
+            if let Some(tile) = world.get_tile(agent_col, agent_row) {
                 let temp = tile.temperature;
+                let cold_tol = agent.genome.cold_tolerance;
+                let heat_tol = agent.genome.heat_tolerance;
                 // Cold damage if low cold tolerance in cold biomes
-                if temp < 0.3 && agent.genome.cold_tolerance < 0.5 {
-                    let damage = (0.3 - temp) * (0.5 - agent.genome.cold_tolerance) * 2.0;
+                if temp < 0.3 && cold_tol < 0.5 {
+                    let damage = (0.3 - temp) * (0.5 - cold_tol) * 0.5 * overcrowding;
                     agent.health -= damage;
                 }
                 // Heat damage if low heat tolerance in hot biomes
-                if temp > 0.7 && agent.genome.heat_tolerance < 0.5 {
-                    let damage = (temp - 0.7) * (0.5 - agent.genome.heat_tolerance) * 2.0;
+                if temp > 0.7 && heat_tol < 0.5 {
+                    let damage = (temp - 0.7) * (0.5 - heat_tol) * 0.5 * overcrowding;
                     agent.health -= damage;
                 }
             }
 
-            // Disease progression
+            // Disease progression (less lethal, faster recovery)
             if agent.disease.infected {
                 agent.disease.ticks_infected += 1;
-                agent.health -= 0.5;
+                agent.health -= 0.15 * overcrowding;
                 // Chance to recover or die
-                if agent.disease.ticks_infected > 50 {
-                    if rand_f32() < 0.02 {
+                if agent.disease.ticks_infected > 30 {
+                    if rand_f32() < 0.08 {
                         agent.disease.infected = false;
                         agent.disease.immune = true;
                     }
-                    if agent.disease.ticks_infected > 100 && rand_f32() < 0.01 {
+                    if agent.disease.ticks_infected > 80 && rand_f32() < 0.005 {
                         agent.health = 0.0;
                     }
                 }
             }
 
-            // Starvation damage
+            // Starvation damage (reduced)
             if agent.energy <= 0.0 {
-                agent.health -= 2.0;
+                agent.health -= 0.5; // Reduced from 2.0
                 agent.energy = 0.0;
             }
 
-            // Dehydration damage
+            // Dehydration damage (reduced)
             if agent.hydration <= 0.0 {
-                agent.health -= 3.0;
+                agent.health -= 0.8; // Reduced from 3.0
                 agent.hydration = 0.0;
             }
 
@@ -477,7 +842,7 @@ impl EvolutionSim {
     }
 
     fn eat_resource(&mut self, agent_idx: usize, col: i32, row: i32, _world: &World) {
-        self.agents[agent_idx].energy += 30.0;
+        self.agents[agent_idx].energy += 50.0; // Increased from 30.0
         self.agents[agent_idx].add_memory(col, row, 1.0);
     }
 
