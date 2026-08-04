@@ -92,7 +92,7 @@ impl EvolutionSim {
     pub fn tick(&mut self, world: &World) {
         self.tick_count += 1;
 
-        // Build spatial indexes
+        // Build spatial indexes every tick (required for correctness when agents die)
         self.build_spatial_grid();
         if self.tick_count % 10 == 0 {
             // Rebuild caches every 10 ticks (resources change slowly)
@@ -282,8 +282,8 @@ impl EvolutionSim {
         }
 
         // 3. Reproduce (use spatial grid)
-        if agent_energy > agent_max_energy * 0.7
-            && agent_hydration > 60.0
+        if agent_energy > agent_max_energy * 0.8
+            && agent_hydration > 70.0
             && agent_repro_cooldown == 0
         {
             if let Some(mate_idx) = self.find_mate_spatial(agent_idx, agent_sight) {
@@ -518,7 +518,7 @@ impl EvolutionSim {
             self.total_births += 1;
         }
 
-        self.agents[agent_idx].repro_cooldown = 100 - (agent_fertility * 50.0) as u32;
-        self.agents[agent_idx].energy -= 20.0;
+        self.agents[agent_idx].repro_cooldown = 200 - (agent_fertility * 80.0) as u32;
+        self.agents[agent_idx].energy -= 35.0;
     }
 }

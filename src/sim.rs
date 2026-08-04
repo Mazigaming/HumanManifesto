@@ -9,6 +9,7 @@ pub struct Sim {
     pub speed_idx: usize,
     pub accumulator: f64,
     pub sim_time: f64,
+    pub day_count: u64,
     pub is_loading: bool,
     pub loading_message: String,
 }
@@ -45,6 +46,7 @@ impl Sim {
             speed_idx: 0,
             accumulator: 0.0,
             sim_time: 0.0,
+            day_count: 0,
             is_loading: false,
             loading_message: String::new(),
         }
@@ -103,6 +105,15 @@ impl Sim {
 
     pub fn tick(&mut self, _dt: f64) {
         self.sim_time += _dt;
+        // 1 second of real time = 1 day at 1x speed
+        self.day_count = self.sim_time.floor() as u64;
         self.evo.tick(&self.world);
+    }
+
+    pub fn formatted_date(&self) -> String {
+        let years = self.day_count / 365;
+        let months = (self.day_count % 365) / 30;
+        let days = self.day_count % 30;
+        format!("Year {}, Month {}, Day {}", years + 1, months + 1, days + 1)
     }
 }

@@ -90,25 +90,79 @@ impl Biome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResourceType {
-    Berries,
-    Game,
-    Fish,
-    Timber,
+    // Food
+    WildBerries,
+    WildGame,
+    FreshFish,
     WildGrain,
+    Mushrooms,
+    Honey,
+    Nuts,
+    MedicinalHerbs,
+    // Materials
+    Timber,
     Stone,
-    Ore,
+    Flint,
+    Clay,
+    Salt,
+    Reeds,
+    Flax,
+    // Metals & Minerals
+    CopperOre,
+    IronOre,
+    GoldOre,
+    Gems,
+    Obsidian,
 }
 
 impl ResourceType {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ResourceType::WildBerries => "Wild Berries",
+            ResourceType::WildGame => "Wild Game",
+            ResourceType::FreshFish => "Fresh Fish",
+            ResourceType::WildGrain => "Wild Grain",
+            ResourceType::Mushrooms => "Mushrooms",
+            ResourceType::Honey => "Wild Honey",
+            ResourceType::Nuts => "Nuts",
+            ResourceType::MedicinalHerbs => "Medicinal Herbs",
+            ResourceType::Timber => "Timber",
+            ResourceType::Stone => "Stone",
+            ResourceType::Flint => "Flint",
+            ResourceType::Clay => "Clay",
+            ResourceType::Salt => "Salt Deposits",
+            ResourceType::Reeds => "Reeds",
+            ResourceType::Flax => "Flax",
+            ResourceType::CopperOre => "Copper Ore",
+            ResourceType::IronOre => "Iron Ore",
+            ResourceType::GoldOre => "Gold Ore",
+            ResourceType::Gems => "Precious Gems",
+            ResourceType::Obsidian => "Obsidian",
+        }
+    }
+
     pub fn color(&self) -> Color {
         match self {
-            ResourceType::Berries => Color::from_rgba(220, 50, 50, 255),
-            ResourceType::Game => Color::from_rgba(180, 100, 50, 255),
-            ResourceType::Fish => Color::from_rgba(50, 100, 220, 255),
-            ResourceType::Timber => Color::from_rgba(100, 70, 40, 255),
+            ResourceType::WildBerries => Color::from_rgba(220, 50, 50, 255),
+            ResourceType::WildGame => Color::from_rgba(180, 100, 50, 255),
+            ResourceType::FreshFish => Color::from_rgba(50, 100, 220, 255),
             ResourceType::WildGrain => Color::from_rgba(220, 200, 50, 255),
+            ResourceType::Mushrooms => Color::from_rgba(180, 140, 200, 255),
+            ResourceType::Honey => Color::from_rgba(255, 200, 50, 255),
+            ResourceType::Nuts => Color::from_rgba(160, 120, 60, 255),
+            ResourceType::MedicinalHerbs => Color::from_rgba(100, 220, 100, 255),
+            ResourceType::Timber => Color::from_rgba(100, 70, 40, 255),
             ResourceType::Stone => Color::from_rgba(160, 150, 140, 255),
-            ResourceType::Ore => Color::from_rgba(200, 180, 60, 255),
+            ResourceType::Flint => Color::from_rgba(120, 120, 130, 255),
+            ResourceType::Clay => Color::from_rgba(200, 140, 100, 255),
+            ResourceType::Salt => Color::from_rgba(240, 240, 250, 255),
+            ResourceType::Reeds => Color::from_rgba(180, 200, 100, 255),
+            ResourceType::Flax => Color::from_rgba(150, 180, 220, 255),
+            ResourceType::CopperOre => Color::from_rgba(220, 130, 60, 255),
+            ResourceType::IronOre => Color::from_rgba(100, 100, 110, 255),
+            ResourceType::GoldOre => Color::from_rgba(255, 220, 50, 255),
+            ResourceType::Gems => Color::from_rgba(200, 50, 255, 255),
+            ResourceType::Obsidian => Color::from_rgba(40, 40, 50, 255),
         }
     }
 }
@@ -332,48 +386,77 @@ fn biome_for(elevation: f32, temperature: f32, moisture: f32, is_coastal: bool) 
 fn resource_table(biome: Biome) -> Vec<(ResourceType, f32, f32)> {
     match biome {
         Biome::Ocean => vec![],
-        Biome::Beach => vec![(ResourceType::Fish, 0.15, 0.3)],
-        Biome::Tundra => vec![(ResourceType::Berries, 0.08, 0.2)],
+        Biome::Beach => vec![
+            (ResourceType::FreshFish, 0.18, 0.4),
+            (ResourceType::Salt, 0.05, 0.2),
+        ],
+        Biome::Tundra => vec![
+            (ResourceType::WildBerries, 0.08, 0.2),
+            (ResourceType::WildGame, 0.06, 0.2),
+        ],
         Biome::Taiga => vec![
-            (ResourceType::Berries, 0.12, 0.3),
-            (ResourceType::Game, 0.10, 0.3),
-            (ResourceType::Timber, 0.15, 0.4),
+            (ResourceType::WildBerries, 0.12, 0.3),
+            (ResourceType::WildGame, 0.10, 0.3),
+            (ResourceType::Timber, 0.18, 0.5),
+            (ResourceType::Mushrooms, 0.08, 0.2),
         ],
         Biome::Plains => vec![
-            (ResourceType::Game, 0.12, 0.4),
-            (ResourceType::WildGrain, 0.08, 0.3),
+            (ResourceType::WildGame, 0.14, 0.4),
+            (ResourceType::WildGrain, 0.12, 0.4),
+            (ResourceType::Flax, 0.06, 0.2),
         ],
         Biome::TemperateForest => vec![
-            (ResourceType::Berries, 0.15, 0.4),
-            (ResourceType::Game, 0.12, 0.4),
-            (ResourceType::Timber, 0.18, 0.5),
+            (ResourceType::WildBerries, 0.15, 0.4),
+            (ResourceType::WildGame, 0.12, 0.4),
+            (ResourceType::Timber, 0.20, 0.5),
+            (ResourceType::Mushrooms, 0.10, 0.3),
+            (ResourceType::Nuts, 0.08, 0.2),
         ],
-        Biome::Desert => vec![(ResourceType::Stone, 0.06, 0.3)],
+        Biome::Desert => vec![
+            (ResourceType::Stone, 0.10, 0.3),
+            (ResourceType::Flint, 0.06, 0.2),
+            (ResourceType::Salt, 0.04, 0.2),
+        ],
         Biome::Savanna => vec![
-            (ResourceType::Game, 0.15, 0.5),
-            (ResourceType::WildGrain, 0.06, 0.3),
+            (ResourceType::WildGame, 0.16, 0.5),
+            (ResourceType::WildGrain, 0.08, 0.3),
+            (ResourceType::MedicinalHerbs, 0.05, 0.2),
         ],
         Biome::Jungle => vec![
-            (ResourceType::Berries, 0.20, 0.5),
-            (ResourceType::Game, 0.10, 0.3),
-            (ResourceType::Timber, 0.15, 0.5),
+            (ResourceType::WildBerries, 0.20, 0.5),
+            (ResourceType::WildGame, 0.10, 0.3),
+            (ResourceType::Timber, 0.18, 0.5),
+            (ResourceType::Mushrooms, 0.12, 0.3),
+            (ResourceType::MedicinalHerbs, 0.08, 0.3),
+            (ResourceType::Honey, 0.06, 0.2),
         ],
-        Biome::Swamp => vec![(ResourceType::Berries, 0.10, 0.2)],
+        Biome::Swamp => vec![
+            (ResourceType::WildBerries, 0.10, 0.2),
+            (ResourceType::Reeds, 0.15, 0.4),
+            (ResourceType::Clay, 0.10, 0.3),
+        ],
         Biome::Hills => vec![
-            (ResourceType::Stone, 0.15, 0.4),
-            (ResourceType::Game, 0.06, 0.2),
+            (ResourceType::Stone, 0.18, 0.4),
+            (ResourceType::Flint, 0.10, 0.3),
+            (ResourceType::WildGame, 0.08, 0.2),
+            (ResourceType::Clay, 0.06, 0.2),
         ],
         Biome::HighlandForest => vec![
-            (ResourceType::Timber, 0.12, 0.4),
-            (ResourceType::Game, 0.08, 0.3),
+            (ResourceType::Timber, 0.15, 0.4),
+            (ResourceType::WildGame, 0.10, 0.3),
+            (ResourceType::Nuts, 0.06, 0.2),
         ],
         Biome::Mountain => vec![
-            (ResourceType::Stone, 0.20, 0.5),
-            (ResourceType::Ore, 0.08, 0.3),
+            (ResourceType::Stone, 0.22, 0.5),
+            (ResourceType::Flint, 0.12, 0.3),
+            (ResourceType::CopperOre, 0.08, 0.3),
+            (ResourceType::IronOre, 0.05, 0.2),
+            (ResourceType::Obsidian, 0.03, 0.2),
         ],
         Biome::SnowMountain => vec![
-            (ResourceType::Stone, 0.12, 0.3),
-            (ResourceType::Ore, 0.06, 0.2),
+            (ResourceType::Stone, 0.15, 0.3),
+            (ResourceType::IronOre, 0.06, 0.2),
+            (ResourceType::GoldOre, 0.02, 0.1),
         ],
     }
 }
@@ -748,7 +831,7 @@ impl World {
                     if tile.elevation > 0.4 && tile.elevation < 0.7 {
                         let name = names[i % names.len()].to_string();
                         let resource_type = if i % 2 == 0 {
-                            ResourceType::Ore
+                            ResourceType::GoldOre
                         } else {
                             ResourceType::Stone
                         };
@@ -1303,7 +1386,7 @@ pub fn get_tile_tooltip(tile: &HexTile) -> Option<String> {
     let mut parts = Vec::new();
 
     if let Some(ref res) = tile.resource {
-        parts.push(format!("{:?}", res.resource_type));
+        parts.push(res.resource_type.display_name().to_string());
     }
 
     if let Some(ref leg) = tile.legendary_resource {
@@ -1311,7 +1394,12 @@ pub fn get_tile_tooltip(tile: &HexTile) -> Option<String> {
     }
 
     if let Some(ref ruin) = tile.ruin {
-        parts.push(format!("Ruin: {:?}", ruin.ruin_type));
+        let ruin_name = match ruin.ruin_type {
+            RuinType::Structure => "Ancient Structure",
+            RuinType::Burial => "Burial Site",
+            RuinType::Monument => "Ancient Monument",
+        };
+        parts.push(format!("Ruin: {}", ruin_name));
     }
 
     if tile.origin_point.is_some() {

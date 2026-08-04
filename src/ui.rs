@@ -29,9 +29,10 @@ impl UI {
         let total = sim.world.tiles.len();
 
         let status = format!(
-            "Speed: {}  |  Time: {:.1}s  |  Grid: {}x{}  |  Seed: {}  |  Land: {}/{} ({}%)  {}",
+            "Speed: {}  |  {}  |  Agents: {}  |  Grid: {}x{}  |  Seed: {}  |  Land: {}/{} ({}%)  {}",
             sim.speed_label(),
-            sim.sim_time,
+            sim.formatted_date(),
+            sim.evo.agents.len(),
             sim.world.width,
             sim.world.height,
             sim.world.seed,
