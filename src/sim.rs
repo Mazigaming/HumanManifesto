@@ -105,8 +105,7 @@ impl Sim {
 
     pub fn tick(&mut self, _dt: f64) {
         self.sim_time += _dt;
-        // 1 second of real time = 1 day at 1x speed
-        self.day_count = self.sim_time.floor() as u64;
+        self.day_count += 1;
         self.evo.tick(&mut self.world);
     }
 
