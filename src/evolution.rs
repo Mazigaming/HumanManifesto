@@ -623,7 +623,7 @@ impl EvolutionSim {
                         ));
                     }
                     agent.pregnancy_father_genome = None;
-                    agent.repro_cooldown = 60; // Post-birth cooldown
+                    agent.repro_cooldown = 30; // Post-birth cooldown
                 }
             }
 
@@ -771,9 +771,9 @@ impl EvolutionSim {
 
             // Old age death (rising probability past lifespan, skip newborns)
             if !is_newborn {
-                let max_age = (500.0 + agent.genome.lifespan * 1500.0) as u32;
+                let max_age = (2000.0 + agent.genome.lifespan * 20000.0) as u32;
                 if agent.age > max_age {
-                    let death_chance = ((agent.age - max_age) as f32 / 500.0).min(0.1);
+                    let death_chance = ((agent.age - max_age) as f32 / 3000.0).min(0.02);
                     if rand_f32() < death_chance {
                         agent.health = 0.0;
                     }
@@ -861,6 +861,7 @@ impl EvolutionSim {
         let agent_sociability;
         let agent_pregnancy_days;
         let agent_intelligence;
+        let agent_age;
         {
             let agent = &self.agents[agent_idx];
             agent_col = agent.col;
@@ -873,6 +874,7 @@ impl EvolutionSim {
             agent_sociability = agent.genome.sociability;
             agent_pregnancy_days = agent.pregnancy_days;
             agent_intelligence = agent.genome.intelligence;
+            agent_age = agent.age;
         }
 
         // 1. Flee danger (use spatial grid)
@@ -956,7 +958,9 @@ impl EvolutionSim {
         }
 
         // 3. Reproduce (use spatial grid)
-        if agent_energy > agent_max_energy * 0.3
+        let can_reproduce_age = agent_age > 60;
+        if can_reproduce_age
+            && agent_energy > agent_max_energy * 0.3
             && agent_hydration > 30.0
             && agent_repro_cooldown == 0
             && agent_pregnancy_days == 0
@@ -1055,7 +1059,7 @@ impl EvolutionSim {
 
                         if dist < sight
                             && other.repro_cooldown == 0
-                            && other.energy > other.max_energy * 0.5
+                            && other.energy > other.max_energy * 0.3
                             && other.pregnancy_days == 0
                         // Can't mate if already pregnant
                         {
@@ -1353,15 +1357,15 @@ impl EvolutionSim {
             male_genome = agent_genome_copy;
         }
 
-        // Set pregnancy (120 days = 4 months)
-        self.agents[female_idx].pregnancy_days = 120;
+        // Set pregnancy (90 days = 3 months)
+        self.agents[female_idx].pregnancy_days = 90;
         self.agents[female_idx].pregnancy_father_genome = Some(male_genome);
         self.agents[female_idx].behavior = BehaviorState::Pregnant;
 
         // Both get cooldowns
-        self.agents[agent_idx].repro_cooldown = 60 - (agent_fertility * 30.0) as u32;
+        self.agents[agent_idx].repro_cooldown = 30 - (agent_fertility * 15.0) as u32;
         self.agents[agent_idx].energy -= 10.0;
-        self.agents[mate_idx].repro_cooldown = 60 - (mate_genome.fertility * 30.0) as u32;
+        self.agents[mate_idx].repro_cooldown = 30 - (mate_genome.fertility * 15.0) as u32;
         self.agents[mate_idx].energy -= 10.0;
     }
 
