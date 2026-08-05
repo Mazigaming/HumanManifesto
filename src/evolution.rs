@@ -380,9 +380,13 @@ impl EvolutionSim {
                     + (g1.cold_tolerance - g2.cold_tolerance).powi(2)
                     + (g1.heat_tolerance - g2.heat_tolerance).powi(2)
                     + (g1.sexuality - g2.sexuality).powi(2)
-                    + (g1.intelligence - g2.intelligence).powi(2))
+                    + (g1.intelligence - g2.intelligence).powi(2)
+                    + (g1.curiosity - g2.curiosity).powi(2)
+                    + (g1.conformity - g2.conformity).powi(2)
+                    + (g1.creativity - g2.creativity).powi(2)
+                    + (g1.leadership - g2.leadership).powi(2))
                 .sqrt()
-                    / 3.873;
+                    / 4.0;
                 total_dist += dist;
                 count += 1;
             }
@@ -420,6 +424,10 @@ impl EvolutionSim {
             heat_tolerance: 0.0,
             sexuality: 0.0,
             intelligence: 0.0,
+            curiosity: 0.0,
+            conformity: 0.0,
+            creativity: 0.0,
+            leadership: 0.0,
         };
 
         let count = genomes.len() as f32;
@@ -437,6 +445,10 @@ impl EvolutionSim {
             initial_centroid.heat_tolerance += g.heat_tolerance;
             initial_centroid.sexuality += g.sexuality;
             initial_centroid.intelligence += g.intelligence;
+            initial_centroid.curiosity += g.curiosity;
+            initial_centroid.conformity += g.conformity;
+            initial_centroid.creativity += g.creativity;
+            initial_centroid.leadership += g.leadership;
         }
 
         initial_centroid.speed /= count;
@@ -452,6 +464,10 @@ impl EvolutionSim {
         initial_centroid.heat_tolerance /= count;
         initial_centroid.sexuality /= count;
         initial_centroid.intelligence /= count;
+        initial_centroid.curiosity /= count;
+        initial_centroid.conformity /= count;
+        initial_centroid.creativity /= count;
+        initial_centroid.leadership /= count;
 
         let new_lineage = Lineage::new(
             new_lineage_id,
@@ -541,6 +557,7 @@ impl EvolutionSim {
             let agent_col = self.agents[i].col;
             let agent_row = self.agents[i].row;
             let overcrowding = self.get_overcrowding_multiplier(agent_col, agent_row, world);
+            let civ_bonus = self.get_civilization_bonus(agent_col, agent_row);
 
             let agent = &mut self.agents[i];
 
@@ -631,8 +648,8 @@ impl EvolutionSim {
                 }
             }
 
-            // Energy drain (very low base drain for early survival)
-            let mut energy_drain = 0.03 + agent.genome.metabolism * 0.02;
+            // Energy drain (strength and speed cost energy)
+            let mut energy_drain = 0.05 + agent.genome.strength * 0.1 + agent.genome.speed * 0.1;
             if let Some(profile) = agent_belief_profile {
                 if profile.asceticism > 0.6 {
                     energy_drain *= 0.95;
@@ -644,8 +661,8 @@ impl EvolutionSim {
                 energy_drain
             };
 
-            // Hydration drain (very low)
-            let mut hydration_drain = 0.02;
+            // Hydration drain (metabolism drives thirst)
+            let mut hydration_drain = 0.03 + agent.genome.metabolism * 0.05;
             if let Some(profile) = agent_belief_profile {
                 if profile.asceticism > 0.6 {
                     hydration_drain *= 0.95;
@@ -677,6 +694,10 @@ impl EvolutionSim {
                         regen += 0.02;
                     }
                 }
+
+                // Phase 6 — Civilization bonus
+                regen += civ_bonus.regen_bonus;
+                agent.hydration = (agent.hydration + civ_bonus.regen_bonus * 0.8).min(100.0);
 
                 // Environmental proximity bonuses
                 if let Some(tile) = world.get_tile(agent_col, agent_row) {
@@ -727,6 +748,9 @@ impl EvolutionSim {
             if agent.disease.infected {
                 agent.disease.ticks_infected += 1;
                 let mut health_drain = 0.05 * overcrowding;
+
+                // Civilization disease resistance
+                health_drain *= (1.0 - civ_bonus.disease_resistance).max(0.1);
 
                 // Medicinal herbs nearby help fight disease
                 if let Some(tile) = world.get_tile(agent_col, agent_row) {
@@ -964,17 +988,22 @@ impl EvolutionSim {
         // 3. Reproduce (use spatial grid with expanded search)
         let can_reproduce_age = agent_age > 60;
         if can_reproduce_age
-            && agent_energy > agent_max_energy * 0.3
-            && agent_hydration > 30.0
+            && agent_energy > 80.0
+            && agent_hydration > 50.0
             && agent_repro_cooldown == 0
             && agent_pregnancy_days == 0
         {
             // Use wider search for mates (3x normal sight) to combat low population density
             let mate_search_radius = agent_sight * 3.0;
             if let Some(mate_idx) = self.find_mate_spatial(agent_idx, mate_search_radius) {
-                self.reproduce(agent_idx, mate_idx);
-                self.agents[agent_idx].behavior = BehaviorState::Reproducing;
-                return;
+                // Additional mate quality checks
+                let mate = &self.agents[mate_idx];
+                let mate_ok = mate.health > 70.0 && mate.energy > 80.0 && mate.hydration > 50.0;
+                if mate_ok {
+                    self.reproduce(agent_idx, mate_idx);
+                    self.agents[agent_idx].behavior = BehaviorState::Reproducing;
+                    return;
+                }
             }
         }
 
@@ -994,7 +1023,12 @@ impl EvolutionSim {
             let new_dr = (rand_f32() - 0.5) * 2.0;
             self.agents[agent_idx].exploration_dc = new_dc;
             self.agents[agent_idx].exploration_dr = new_dr;
-            self.agents[agent_idx].exploration_ticks = 20 + (rand_f32() * 30.0) as u32;
+            // Smarter/curious agents explore more dynamically
+            let base_ticks = 20 + (rand_f32() * 30.0) as u32;
+            let intel_factor = 1.0 - agent_intelligence * 0.6;
+            let curiosity_factor = 1.0 - self.agents[agent_idx].genome.curiosity * 0.4;
+            self.agents[agent_idx].exploration_ticks =
+                (base_ticks as f32 * intel_factor * curiosity_factor).max(5.0) as u32;
         }
         let dc = self.agents[agent_idx].exploration_dc;
         let dr = self.agents[agent_idx].exploration_dr;
@@ -1286,6 +1320,12 @@ impl EvolutionSim {
     fn move_agent(&mut self, agent_idx: usize, dc: f32, dr: f32, world: &World) {
         let mut speed = 0.5 + self.agents[agent_idx].genome.speed * 1.5;
 
+        // Civilization speed bonus
+        let agent_col = self.agents[agent_idx].col;
+        let agent_row = self.agents[agent_idx].row;
+        let civ_bonus = self.get_civilization_bonus(agent_col, agent_row);
+        speed *= 1.0 + civ_bonus.speed_bonus;
+
         // Tribe knowledge speed bonus
         if let Some(tid) = self.agents[agent_idx].tribe_id {
             if let Some(tribe) = self.tribes.iter().find(|t| t.id == tid) {
@@ -1309,6 +1349,7 @@ impl EvolutionSim {
     }
 
     fn eat_resource(&mut self, agent_idx: usize, col: i32, row: i32, _world: &World) {
+        let civ_bonus = self.get_civilization_bonus(col, row);
         let agent = &mut self.agents[agent_idx];
         let exp_bonus = (agent.experience / 500.0).min(0.5);
         let tribe_bonus = agent
@@ -1330,8 +1371,8 @@ impl EvolutionSim {
                 })
             })
             .unwrap_or(0.0);
-        agent.energy += 200.0 * (1.0 + exp_bonus + tribe_bonus);
-        agent.hydration += 80.0 * (1.0 + exp_bonus + tribe_bonus);
+        agent.energy += 200.0 * (1.0 + exp_bonus + tribe_bonus + civ_bonus.food_bonus);
+        agent.hydration += 80.0 * (1.0 + exp_bonus + tribe_bonus + civ_bonus.food_bonus);
         agent.add_memory(col, row, 1.0);
         self.debug_stats.ate_food += 1;
     }
@@ -2254,22 +2295,70 @@ impl EvolutionSim {
     }
 
     // Phase 6 — Apply civilization effects to agents
-    pub fn get_civilization_bonus(&self, _col: i32, _row: i32) -> CivBonus {
-        let mut bonus = CivBonus::default();
+    pub fn get_civilization_bonus(&self, _col: i32, _row: i32) -> crate::civilization::CivBonus {
+        let mut bonus = crate::civilization::CivBonus::default();
         for civ in &self.civilizations {
-            if civ.cities.is_empty() {
+            let city_count = civ.cities.len() as f32;
+            if city_count == 0.0 {
                 continue;
             }
-            bonus.regen_bonus += 0.02;
-            bonus.food_bonus += 0.02;
+
+            // Per-city bonuses scale with population
+            let city_pop_factor = civ.total_population() as f32 / 1000.0;
+            bonus.regen_bonus += 0.02 * city_count + city_pop_factor * 0.01;
+            bonus.food_bonus += 0.015 * city_count;
+
+            // Government bonuses
+            match civ.government_type.as_str() {
+                "Monarchy" => {
+                    bonus.stability_bonus += 0.1;
+                    bonus.regen_bonus += 0.01;
+                }
+                "Republic" => {
+                    bonus.food_bonus += 0.02;
+                    bonus.birth_rate_bonus += 0.05;
+                }
+                "Military Dictatorship" => {
+                    bonus.stability_bonus -= 0.05;
+                    bonus.speed_bonus += 0.03;
+                }
+                _ => {}
+            }
+
+            // Active focus bonuses
+            let focus_bonus = civ.active_focus_bonuses();
+            bonus.regen_bonus += focus_bonus.regen_bonus;
+            bonus.food_bonus += focus_bonus.food_bonus;
+            bonus.birth_rate_bonus += focus_bonus.birth_rate_bonus;
+            bonus.disease_resistance += focus_bonus.disease_resistance;
+            bonus.speed_bonus += focus_bonus.speed_bonus;
+            bonus.max_energy_bonus += focus_bonus.max_energy_bonus;
+            bonus.research_rate_bonus += focus_bonus.research_rate_bonus;
+            bonus.stability_bonus += focus_bonus.stability_bonus;
+
+            // Tech-based bonuses
+            if civ.has_tech(5) {
+                bonus.food_bonus += 0.05; // Agriculture
+            }
+            if civ.has_tech(9) {
+                bonus.regen_bonus += 0.03; // Permanent Cities
+            }
+            if civ.has_tech(13) {
+                bonus.disease_resistance += 0.1; // Medicine
+            }
+            if civ.has_tech(15) {
+                bonus.speed_bonus += 0.05; // Steam Power
+            }
+            if civ.has_tech(17) {
+                bonus.max_energy_bonus += 10.0; // Electricity
+            }
+
+            // Identity trait bonuses
+            let trait_bonus = civ.identity.get_modifier("Agriculture");
+            bonus.food_bonus += trait_bonus * 0.5;
+            let trade_bonus = civ.identity.get_modifier("Trade");
+            bonus.food_bonus += trade_bonus * 0.3;
         }
         bonus
     }
-}
-
-// Phase 6 — Civilization bonus container
-#[derive(Clone, Debug, Default)]
-pub struct CivBonus {
-    pub regen_bonus: f32,
-    pub food_bonus: f32,
 }

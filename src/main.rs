@@ -231,6 +231,7 @@ fn handle_input(sim: &mut Sim, ui: &mut UI, camera: &mut SimCamera) {
                         if let Some(focus) = all_focuses.iter().find(|f| f.id == focus_id) {
                             if civ.spend_influence(focus.cost) {
                                 civ.unlock_focus(focus.id);
+                                civ.activate_focus(focus.id);
                                 let logs = civ.apply_effects(&focus.effects);
                                 for log in logs {
                                     sim.evo.chronicle.push(format!("[{}] {}", civ.identity.name, log));

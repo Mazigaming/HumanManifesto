@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-// 12 genome traits, each 0.0-1.0, each with trade-offs
+// 17 genome traits, each 0.0-1.0, each with trade-offs
 #[derive(Clone, Copy, Debug)]
 pub struct Genome {
     pub speed: f32,          // Movement speed, costs energy while moving
@@ -16,6 +16,10 @@ pub struct Genome {
     pub heat_tolerance: f32, // Survives hot biomes, costs in cold biomes
     pub sexuality: f32,      // 0.0=hetero, 0.5=bi, 1.0=homo
     pub intelligence: f32,   // Better memory, foraging, decision-making
+    pub curiosity: f32,      // Exploration drive, invention potential
+    pub conformity: f32,     // Social cohesion, tradition adherence
+    pub creativity: f32,     // Innovation, problem solving
+    pub leadership: f32,     // Group coordination, influence
 }
 
 impl Genome {
@@ -34,6 +38,10 @@ impl Genome {
             heat_tolerance: rand_f32(),
             sexuality: rand_f32(),
             intelligence: rand_f32(),
+            curiosity: rand_f32(),
+            conformity: rand_f32(),
+            creativity: rand_f32(),
+            leadership: rand_f32(),
         }
     }
 
@@ -52,6 +60,10 @@ impl Genome {
             heat_tolerance: (parent_a.heat_tolerance + parent_b.heat_tolerance) * 0.5,
             sexuality: (parent_a.sexuality + parent_b.sexuality) * 0.5,
             intelligence: (parent_a.intelligence + parent_b.intelligence) * 0.5,
+            curiosity: (parent_a.curiosity + parent_b.curiosity) * 0.5,
+            conformity: (parent_a.conformity + parent_b.conformity) * 0.5,
+            creativity: (parent_a.creativity + parent_b.creativity) * 0.5,
+            leadership: (parent_a.leadership + parent_b.leadership) * 0.5,
         };
         g.mutate(mutation_rate);
         g
@@ -71,6 +83,10 @@ impl Genome {
         Self::mutate_trait(&mut self.heat_tolerance, rate);
         Self::mutate_trait(&mut self.sexuality, rate);
         Self::mutate_trait(&mut self.intelligence, rate);
+        Self::mutate_trait(&mut self.curiosity, rate);
+        Self::mutate_trait(&mut self.conformity, rate);
+        Self::mutate_trait(&mut self.creativity, rate);
+        Self::mutate_trait(&mut self.leadership, rate);
     }
 
     fn mutate_trait(trait_val: &mut f32, rate: f32) {
@@ -118,8 +134,12 @@ impl Genome {
             + (self.cold_tolerance - other.cold_tolerance).abs()
             + (self.heat_tolerance - other.heat_tolerance).abs()
             + (self.sexuality - other.sexuality).abs()
-            + (self.intelligence - other.intelligence).abs();
-        1.0 - diff / 12.0
+            + (self.intelligence - other.intelligence).abs()
+            + (self.curiosity - other.curiosity).abs()
+            + (self.conformity - other.conformity).abs()
+            + (self.creativity - other.creativity).abs()
+            + (self.leadership - other.leadership).abs();
+        1.0 - diff / 17.0
     }
 }
 
@@ -192,7 +212,7 @@ pub struct Agent {
     pub repro_cooldown: u32,
     pub pregnancy_days: u32,
     pub pregnancy_father_genome: Option<Genome>,
-    pub memory: [Option<MemorySlot>; 5],
+    pub memory: [Option<MemorySlot>; 8],
     pub disease: DiseaseState,
     pub conflict_wins: u32,
     pub large_mutation: bool,
@@ -205,7 +225,7 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(id: u64, lineage_id: u32, col: i32, row: i32, genome: Genome) -> Self {
-        let max_energy = 120.0 + genome.strength * 60.0;
+        let max_energy = 100.0 + genome.lifespan * 20.0;
         let gender = if rand_f32() < 0.5 {
             Gender::Male
         } else {
@@ -229,7 +249,7 @@ impl Agent {
             repro_cooldown: 0,
             pregnancy_days: 0,
             pregnancy_father_genome: None,
-            memory: [None; 5],
+            memory: [None; 8],
             disease: DiseaseState {
                 infected: false,
                 ticks_infected: 0,
@@ -255,7 +275,7 @@ impl Agent {
         // Find empty slot or lowest value slot
         let mut target = 0;
         let mut min_val = f32::MAX;
-        for i in 0..5 {
+        for i in 0..8 {
             match self.memory[i] {
                 None => {
                     target = i;
@@ -272,8 +292,8 @@ impl Agent {
     }
 
     pub fn decay_memories(&mut self) {
-        let decay_rate = 0.01 + (1.0 - self.genome.intelligence) * 0.02;
-        for i in 0..5 {
+        let decay_rate = 0.005 + (1.0 - self.genome.intelligence) * 0.01;
+        for i in 0..8 {
             if let Some(ref mut m) = self.memory[i] {
                 m.decay -= decay_rate;
                 if m.decay <= 0.0 {
@@ -284,7 +304,7 @@ impl Agent {
     }
 
     pub fn sight_radius(&self) -> f32 {
-        let base = 2.0 + self.genome.sight_range * 6.0;
+        let base = 5.0 + self.genome.sight_range * 20.0;
         base * (0.8 + self.genome.intelligence * 0.4)
     }
 }

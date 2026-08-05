@@ -47,6 +47,10 @@ impl CultureProfile {
             heat_tolerance: 0.0,
             sexuality: 0.0,
             intelligence: 0.0,
+            curiosity: 0.0,
+            conformity: 0.0,
+            creativity: 0.0,
+            leadership: 0.0,
         };
 
         for agent in agents {
@@ -76,8 +80,12 @@ impl CultureProfile {
                 + (agent.genome.cold_tolerance - centroid.cold_tolerance).abs()
                 + (agent.genome.heat_tolerance - centroid.heat_tolerance).abs()
                 + (agent.genome.sexuality - centroid.sexuality).abs()
-                + (agent.genome.intelligence - centroid.intelligence).abs();
-            genome_variance += diff / 12.0;
+                + (agent.genome.intelligence - centroid.intelligence).abs()
+                + (agent.genome.curiosity - centroid.curiosity).abs()
+                + (agent.genome.conformity - centroid.conformity).abs()
+                + (agent.genome.creativity - centroid.creativity).abs()
+                + (agent.genome.leadership - centroid.leadership).abs();
+            genome_variance += diff / 17.0;
         }
         genome_variance /= n;
 

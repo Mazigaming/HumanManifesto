@@ -1,5 +1,5 @@
 use crate::belief::Belief;
-use crate::civilization::{build_focus_tree, FocusNode};
+use crate::civilization::build_focus_tree;
 use crate::sim::Sim;
 use crate::tribe::Tribe;
 use macroquad::prelude::*;
@@ -239,7 +239,7 @@ impl UI {
         let mut hetero = 0;
         let mut bi = 0;
         let mut homo = 0;
-        let mut trait_sums = [0.0; 13];
+        let mut trait_sums = [0.0; 17];
         let trait_names = [
             "Speed",
             "Strength",
@@ -254,6 +254,10 @@ impl UI {
             "HeatTol",
             "Sexuality",
             "Intelligence",
+            "Curiosity",
+            "Conformity",
+            "Creativity",
+            "Leadership",
         ];
 
         for agent in agents {
@@ -285,6 +289,10 @@ impl UI {
             trait_sums[10] += agent.genome.heat_tolerance;
             trait_sums[11] += agent.genome.sexuality;
             trait_sums[12] += agent.genome.intelligence;
+            trait_sums[13] += agent.genome.curiosity;
+            trait_sums[14] += agent.genome.conformity;
+            trait_sums[15] += agent.genome.creativity;
+            trait_sums[16] += agent.genome.leadership;
         }
 
         let n = agents.len() as f32;

@@ -62,6 +62,10 @@ impl Lineage {
             heat_tolerance: 0.0,
             sexuality: 0.0,
             intelligence: 0.0,
+            curiosity: 0.0,
+            conformity: 0.0,
+            creativity: 0.0,
+            leadership: 0.0,
         };
 
         for genome in genomes {
@@ -78,6 +82,10 @@ impl Lineage {
             avg.heat_tolerance += genome.heat_tolerance;
             avg.sexuality += genome.sexuality;
             avg.intelligence += genome.intelligence;
+            avg.curiosity += genome.curiosity;
+            avg.conformity += genome.conformity;
+            avg.creativity += genome.creativity;
+            avg.leadership += genome.leadership;
         }
 
         avg.speed /= count;
@@ -93,6 +101,10 @@ impl Lineage {
         avg.heat_tolerance /= count;
         avg.sexuality /= count;
         avg.intelligence /= count;
+        avg.curiosity /= count;
+        avg.conformity /= count;
+        avg.creativity /= count;
+        avg.leadership /= count;
 
         self.centroid_genome = avg;
         self.dominant_color = avg.phenotype_color();
@@ -116,9 +128,13 @@ impl Lineage {
             + (genome.cold_tolerance - c.cold_tolerance).powi(2)
             + (genome.heat_tolerance - c.heat_tolerance).powi(2)
             + (genome.sexuality - c.sexuality).powi(2)
-            + (genome.intelligence - c.intelligence).powi(2))
+            + (genome.intelligence - c.intelligence).powi(2)
+            + (genome.curiosity - c.curiosity).powi(2)
+            + (genome.conformity - c.conformity).powi(2)
+            + (genome.creativity - c.creativity).powi(2)
+            + (genome.leadership - c.leadership).powi(2))
         .sqrt();
-        dist / 3.873 // Normalize: sqrt(15) max distance
+        dist / 4.0 // Normalize: sqrt(17) max distance
     }
 }
 

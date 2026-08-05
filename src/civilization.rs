@@ -146,6 +146,14 @@ pub enum FocusEffect {
     SpawnEvent(String),
     GrantInfluence(f32),
     UnlockEra(String),
+    BirthRateBonus(f32),
+    DiseaseResistance(f32),
+    SpeedBonus(f32),
+    MaxEnergyBonus(f32),
+    ResearchRateBonus(f32),
+    StabilityBonus(f32),
+    FoodBonus(f32),
+    RegenBonus(f32),
 }
 
 #[derive(Clone, Debug)]
@@ -545,6 +553,32 @@ impl Civilization {
                     self.current_era = era.clone();
                     logs.push(format!("Era changed to {}", era));
                 }
+                FocusEffect::BirthRateBonus(amount) => {
+                    self.ideology.equality =
+                        (self.ideology.equality + amount * 0.1).clamp(0.0, 1.0);
+                    logs.push(format!("Birth rate policy adjusted"));
+                }
+                FocusEffect::DiseaseResistance(_amount) => {
+                    logs.push(format!("Disease resistance improved"));
+                }
+                FocusEffect::SpeedBonus(_amount) => {
+                    logs.push(format!("Movement speed improved"));
+                }
+                FocusEffect::MaxEnergyBonus(_amount) => {
+                    logs.push(format!("Energy capacity increased"));
+                }
+                FocusEffect::ResearchRateBonus(_amount) => {
+                    logs.push(format!("Research rate improved"));
+                }
+                FocusEffect::StabilityBonus(_amount) => {
+                    self.stability = (self.stability + _amount * 100.0).clamp(0.0, 100.0);
+                }
+                FocusEffect::FoodBonus(_amount) => {
+                    logs.push(format!("Food production increased"));
+                }
+                FocusEffect::RegenBonus(_amount) => {
+                    logs.push(format!("Regeneration improved"));
+                }
             }
         }
         if let Some(first) = effects.first() {
@@ -590,12 +624,87 @@ impl Civilization {
             .filter(|f| !self.unlocked_focuses.contains(&f.id) && f.is_available(self))
             .collect()
     }
+
+    pub fn active_focus_bonuses(&self) -> CivBonus {
+        let mut bonus = CivBonus::default();
+        for focus_id in &self.active_focuses {
+            match focus_id {
+                19 => {
+                    // Standing Army
+                    bonus.speed_bonus += 0.05;
+                    bonus.stability_bonus -= 0.03;
+                }
+                20 => {
+                    // Marketplaces
+                    bonus.food_bonus += 0.08;
+                }
+                21 => {
+                    // Currency
+                    bonus.food_bonus += 0.05;
+                    bonus.research_rate_bonus += 0.1;
+                }
+                22 => {
+                    // Philosophy
+                    bonus.research_rate_bonus += 0.15;
+                }
+                23 => {
+                    // Public Education
+                    bonus.research_rate_bonus += 0.2;
+                    bonus.regen_bonus += 0.02;
+                }
+                24 => {
+                    // Holy Orders
+                    bonus.stability_bonus += 0.1;
+                    bonus.disease_resistance += 0.05;
+                }
+                25 => {
+                    // Naval Empire
+                    bonus.speed_bonus += 0.08;
+                    bonus.food_bonus += 0.06;
+                }
+                26 => {
+                    // National Identity
+                    bonus.stability_bonus += 0.15;
+                    bonus.birth_rate_bonus += 0.05;
+                }
+                27 => {
+                    // Medical Advances
+                    bonus.disease_resistance += 0.3;
+                    bonus.regen_bonus += 0.03;
+                    bonus.max_energy_bonus += 15.0;
+                }
+                28 => {
+                    // Digital Revolution
+                    bonus.research_rate_bonus += 0.3;
+                    bonus.speed_bonus += 0.1;
+                }
+                29 => {
+                    // Global Hegemony
+                    bonus.speed_bonus += 0.06;
+                    bonus.food_bonus -= 0.05;
+                }
+                30 => {
+                    // Space Program
+                    bonus.research_rate_bonus += 0.4;
+                    bonus.regen_bonus += 0.05;
+                }
+                _ => {}
+            }
+        }
+        bonus
+    }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct CivBonus {
     pub regen_bonus: f32,
     pub food_bonus: f32,
+    pub birth_rate_bonus: f32,
+    pub disease_resistance: f32,
+    pub speed_bonus: f32,
+    pub max_energy_bonus: f32,
+    pub research_rate_bonus: f32,
+    pub stability_bonus: f32,
 }
 
 pub fn build_focus_tree() -> Vec<FocusNode> {
@@ -790,6 +899,324 @@ pub fn build_focus_tree() -> Vec<FocusNode> {
             ],
             unlocked_ids: vec![],
             category: "Military".to_string(),
+        },
+        FocusNode {
+            id: 13,
+            name: "Divine Guidance".to_string(),
+            description: "Channel divine influence to inspire your people".to_string(),
+            era: "Stone Age".to_string(),
+            cost: 50.0,
+            requirements: vec![FocusRequirement::Population(50)],
+            effects: vec![
+                FocusEffect::GrantInfluence(100.0),
+                FocusEffect::ModifyStat("spirituality".to_string(), 0.15),
+                FocusEffect::ModifyStat("stability".to_string(), 0.1),
+            ],
+            unlocked_ids: vec![],
+            category: "Divine".to_string(),
+        },
+        FocusNode {
+            id: 14,
+            name: "Great Temple".to_string(),
+            description: "Build a monument to your faith".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 150.0,
+            requirements: vec![
+                FocusRequirement::Population(200),
+                FocusRequirement::CityCount(1),
+            ],
+            effects: vec![
+                FocusEffect::ModifyStat("spirituality".to_string(), 0.25),
+                FocusEffect::ModifyStat("stability".to_string(), 0.2),
+                FocusEffect::ModifyStat("tradition".to_string(), 0.15),
+            ],
+            unlocked_ids: vec![],
+            category: "Divine".to_string(),
+        },
+        FocusNode {
+            id: 15,
+            name: "Trade Routes".to_string(),
+            description: "Establish trade with neighboring peoples".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 100.0,
+            requirements: vec![FocusRequirement::Population(150)],
+            effects: vec![
+                FocusEffect::ModifyStat("equality".to_string(), 0.1),
+                FocusEffect::ModifyStat("individualism".to_string(), 0.1),
+                FocusEffect::GrantInfluence(50.0),
+            ],
+            unlocked_ids: vec![],
+            category: "Economic".to_string(),
+        },
+        FocusNode {
+            id: 16,
+            name: "The Enlightenment".to_string(),
+            description: "Spread knowledge and reason".to_string(),
+            era: "Knowledge Era".to_string(),
+            cost: 200.0,
+            requirements: vec![
+                FocusRequirement::Population(400),
+                FocusRequirement::EraReached("Knowledge Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ModifyStat("individualism".to_string(), 0.2),
+                FocusEffect::ModifyStat("tradition".to_string(), -0.15),
+                FocusEffect::UnlockTech(14),
+            ],
+            unlocked_ids: vec![],
+            category: "Technology".to_string(),
+        },
+        FocusNode {
+            id: 17,
+            name: "Industrial Revolution".to_string(),
+            description: "Embrace machines and industry".to_string(),
+            era: "Industrial Era".to_string(),
+            cost: 300.0,
+            requirements: vec![
+                FocusRequirement::Population(600),
+                FocusRequirement::EraReached("Industrial Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::UnlockTech(15),
+                FocusEffect::ModifyStat("militarism".to_string(), 0.1),
+                FocusEffect::ModifyStat("individualism".to_string(), 0.15),
+                FocusEffect::GrantInfluence(100.0),
+            ],
+            unlocked_ids: vec![],
+            category: "Technology".to_string(),
+        },
+        FocusNode {
+            id: 18,
+            name: "World Wonder".to_string(),
+            description: "Construct a monument to your civilization".to_string(),
+            era: "Knowledge Era".to_string(),
+            cost: 250.0,
+            requirements: vec![
+                FocusRequirement::Population(500),
+                FocusRequirement::CityCount(2),
+            ],
+            effects: vec![
+                FocusEffect::ModifyStat("stability".to_string(), 0.3),
+                FocusEffect::ModifyStat("tradition".to_string(), 0.2),
+                FocusEffect::GrantInfluence(150.0),
+            ],
+            unlocked_ids: vec![],
+            category: "Cultural".to_string(),
+        },
+        FocusNode {
+            id: 19,
+            name: "Standing Army".to_string(),
+            description: "Maintain a professional military force".to_string(),
+            era: "Knowledge Era".to_string(),
+            cost: 180.0,
+            requirements: vec![
+                FocusRequirement::Population(250),
+                FocusRequirement::GovernmentType("Monarchy".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ModifyStat("militarism".to_string(), 0.2),
+                FocusEffect::ModifyStat("authority".to_string(), 0.15),
+                FocusEffect::SpeedBonus(0.05),
+            ],
+            unlocked_ids: vec![],
+            category: "Military".to_string(),
+        },
+        FocusNode {
+            id: 20,
+            name: "Marketplaces".to_string(),
+            description: "Build centers of trade and commerce".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 120.0,
+            requirements: vec![FocusRequirement::CityCount(1)],
+            effects: vec![
+                FocusEffect::ModifyStat("equality".to_string(), 0.1),
+                FocusEffect::FoodBonus(0.08),
+                FocusEffect::GrantInfluence(30.0),
+            ],
+            unlocked_ids: vec![],
+            category: "Economic".to_string(),
+        },
+        FocusNode {
+            id: 21,
+            name: "Currency".to_string(),
+            description: "Adopt a standardized monetary system".to_string(),
+            era: "Knowledge Era".to_string(),
+            cost: 150.0,
+            requirements: vec![
+                FocusRequirement::Population(300),
+                FocusRequirement::EraReached("Knowledge Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ModifyStat("stability".to_string(), 0.1),
+                FocusEffect::FoodBonus(0.05),
+                FocusEffect::ResearchRateBonus(0.1),
+            ],
+            unlocked_ids: vec![],
+            category: "Economic".to_string(),
+        },
+        FocusNode {
+            id: 22,
+            name: "Philosophy".to_string(),
+            description: "Establish schools of philosophical thought".to_string(),
+            era: "Knowledge Era".to_string(),
+            cost: 160.0,
+            requirements: vec![
+                FocusRequirement::Population(350),
+                FocusRequirement::EraReached("Knowledge Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ModifyStat("individualism".to_string(), 0.15),
+                FocusEffect::ModifyStat("tradition".to_string(), -0.1),
+                FocusEffect::ResearchRateBonus(0.15),
+            ],
+            unlocked_ids: vec![],
+            category: "Cultural".to_string(),
+        },
+        FocusNode {
+            id: 23,
+            name: "Public Education".to_string(),
+            description: "Establish universal education systems".to_string(),
+            era: "Industrial Era".to_string(),
+            cost: 200.0,
+            requirements: vec![
+                FocusRequirement::Population(500),
+                FocusRequirement::EraReached("Industrial Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ResearchRateBonus(0.2),
+                FocusEffect::ModifyStat("equality".to_string(), 0.15),
+                FocusEffect::RegenBonus(0.02),
+            ],
+            unlocked_ids: vec![],
+            category: "Technology".to_string(),
+        },
+        FocusNode {
+            id: 24,
+            name: "Holy Orders".to_string(),
+            description: "Establish organized religious institutions".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 130.0,
+            requirements: vec![
+                FocusRequirement::Population(200),
+                FocusRequirement::CityCount(1),
+            ],
+            effects: vec![
+                FocusEffect::ModifyStat("spirituality".to_string(), 0.2),
+                FocusEffect::ModifyStat("tradition".to_string(), 0.15),
+                FocusEffect::StabilityBonus(0.1),
+            ],
+            unlocked_ids: vec![],
+            category: "Divine".to_string(),
+        },
+        FocusNode {
+            id: 25,
+            name: "Naval Empire".to_string(),
+            description: "Build a powerful navy for trade and war".to_string(),
+            era: "Industrial Era".to_string(),
+            cost: 250.0,
+            requirements: vec![
+                FocusRequirement::Population(400),
+                FocusRequirement::EraReached("Industrial Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::SpeedBonus(0.08),
+                FocusEffect::FoodBonus(0.06),
+                FocusEffect::ModifyStat("militarism".to_string(), 0.1),
+            ],
+            unlocked_ids: vec![],
+            category: "Military".to_string(),
+        },
+        FocusNode {
+            id: 26,
+            name: "National Identity".to_string(),
+            description: "Foster a shared cultural identity".to_string(),
+            era: "Industrial Era".to_string(),
+            cost: 220.0,
+            requirements: vec![
+                FocusRequirement::Population(600),
+                FocusRequirement::EraReached("Industrial Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ModifyStat("conformity".to_string(), 0.2),
+                FocusEffect::StabilityBonus(0.15),
+                FocusEffect::ModifyStat("tradition".to_string(), 0.1),
+            ],
+            unlocked_ids: vec![],
+            category: "Cultural".to_string(),
+        },
+        FocusNode {
+            id: 27,
+            name: "Medical Advances".to_string(),
+            description: "Develop modern medicine and healthcare".to_string(),
+            era: "Industrial Era".to_string(),
+            cost: 280.0,
+            requirements: vec![
+                FocusRequirement::Population(700),
+                FocusRequirement::TechUnlocked(13),
+            ],
+            effects: vec![
+                FocusEffect::DiseaseResistance(0.3),
+                FocusEffect::RegenBonus(0.03),
+                FocusEffect::MaxEnergyBonus(15.0),
+            ],
+            unlocked_ids: vec![],
+            category: "Technology".to_string(),
+        },
+        FocusNode {
+            id: 28,
+            name: "Digital Revolution".to_string(),
+            description: "Embrace the information age".to_string(),
+            era: "Information Era".to_string(),
+            cost: 400.0,
+            requirements: vec![
+                FocusRequirement::Population(1000),
+                FocusRequirement::EraReached("Information Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ResearchRateBonus(0.3),
+                FocusEffect::SpeedBonus(0.1),
+                FocusEffect::GrantInfluence(200.0),
+            ],
+            unlocked_ids: vec![],
+            category: "Technology".to_string(),
+        },
+        FocusNode {
+            id: 29,
+            name: "Global Hegemony".to_string(),
+            description: "Establish dominance over neighboring civilizations".to_string(),
+            era: "Industrial Era".to_string(),
+            cost: 350.0,
+            requirements: vec![
+                FocusRequirement::Population(800),
+                FocusRequirement::EraReached("Industrial Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ModifyStat("militarism".to_string(), 0.3),
+                FocusEffect::ModifyStat("authority".to_string(), 0.2),
+                FocusEffect::SpeedBonus(0.06),
+                FocusEffect::FoodBonus(-0.05),
+            ],
+            unlocked_ids: vec![],
+            category: "Military".to_string(),
+        },
+        FocusNode {
+            id: 30,
+            name: "Space Program".to_string(),
+            description: "Reach for the stars".to_string(),
+            era: "Information Era".to_string(),
+            cost: 500.0,
+            requirements: vec![
+                FocusRequirement::Population(1500),
+                FocusRequirement::EraReached("Information Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ResearchRateBonus(0.4),
+                FocusEffect::RegenBonus(0.05),
+                FocusEffect::GrantInfluence(300.0),
+                FocusEffect::ModifyStat("spirituality".to_string(), 0.1),
+            ],
+            unlocked_ids: vec![],
+            category: "Technology".to_string(),
         },
     ]
 }
