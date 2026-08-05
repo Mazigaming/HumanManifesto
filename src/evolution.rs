@@ -2157,6 +2157,72 @@ impl EvolutionSim {
             let pop = civ.total_population();
             let prev_earned = civ.total_influence_earned;
 
+            // Phase 6 — Tech progress over time based on population/knowledge
+            if civ.current_era != "Information Era" {
+                let research_rate = (pop as f32 / 1000.0).max(0.1);
+                for tech in &mut civ.tech_tree {
+                    if !tech.unlocked && tech.progress < 100.0 {
+                        tech.progress += research_rate;
+                        if tech.progress >= 100.0 {
+                            tech.unlocked = true;
+                            self.chronicle.push(format!(
+                                "[{}] Technology researched: {}",
+                                civ.identity.name, tech.name
+                            ));
+                        }
+                    }
+                }
+                // Auto-advance era when enough techs unlocked
+                let unlocked_count = civ.tech_tree.iter().filter(|t| t.unlocked).count();
+                if unlocked_count >= 5 && civ.current_era == "Stone Age" {
+                    civ.current_era = "Agricultural Era".to_string();
+                    self.chronicle.push(format!(
+                        "[{}] Advanced to Agricultural Era",
+                        civ.identity.name
+                    ));
+                } else if unlocked_count >= 10 && civ.current_era == "Agricultural Era" {
+                    civ.current_era = "Knowledge Era".to_string();
+                    self.chronicle
+                        .push(format!("[{}] Advanced to Knowledge Era", civ.identity.name));
+                } else if unlocked_count >= 15 && civ.current_era == "Knowledge Era" {
+                    civ.current_era = "Industrial Era".to_string();
+                    self.chronicle.push(format!(
+                        "[{}] Advanced to Industrial Era",
+                        civ.identity.name
+                    ));
+                } else if unlocked_count >= 18 && civ.current_era == "Industrial Era" {
+                    civ.current_era = "Information Era".to_string();
+                    self.chronicle.push(format!(
+                        "[{}] Advanced to Information Era",
+                        civ.identity.name
+                    ));
+                }
+            }
+
+            // Phase 6 — City founding from large tribe populations
+            if civ.cities.len() < 10 && pop >= 200 && civ.current_era != "Stone Age" {
+                if let Some(center_tribe) = self
+                    .tribes
+                    .iter()
+                    .find(|t| !t.is_extinct && t.member_ids.len() >= 20)
+                {
+                    let new_city_name =
+                        format!("{} City {}", civ.identity.name, civ.cities.len() + 1);
+                    civ.add_city(
+                        new_city_name,
+                        center_tribe.territory_center.0,
+                        center_tribe.territory_center.1,
+                        50,
+                        self.tick_count,
+                    );
+                    self.chronicle.push(format!(
+                        "[{}] Founded new city: {}",
+                        civ.identity.name,
+                        civ.cities.last().unwrap().name
+                    ));
+                }
+            }
+
             // Population milestones
             let pop_thresholds = vec![100.0, 500.0, 1000.0, 5000.0, 10000.0];
             for &threshold in &pop_thresholds {
@@ -2186,4 +2252,24 @@ impl EvolutionSim {
             }
         }
     }
+
+    // Phase 6 — Apply civilization effects to agents
+    pub fn get_civilization_bonus(&self, _col: i32, _row: i32) -> CivBonus {
+        let mut bonus = CivBonus::default();
+        for civ in &self.civilizations {
+            if civ.cities.is_empty() {
+                continue;
+            }
+            bonus.regen_bonus += 0.02;
+            bonus.food_bonus += 0.02;
+        }
+        bonus
+    }
+}
+
+// Phase 6 — Civilization bonus container
+#[derive(Clone, Debug, Default)]
+pub struct CivBonus {
+    pub regen_bonus: f32,
+    pub food_bonus: f32,
 }

@@ -1,4 +1,5 @@
 use crate::belief::Belief;
+use crate::civilization::{build_focus_tree, FocusNode};
 use crate::sim::Sim;
 use crate::tribe::Tribe;
 use macroquad::prelude::*;
@@ -709,6 +710,60 @@ impl UI {
                         y,
                         10.0,
                         Color::from_rgba(200, 200, 200, 200),
+                    );
+                    y += line_h - 2.0;
+                }
+            }
+
+            y += 6.0;
+            draw_text(
+                "AVAILABLE FOCUSES",
+                panel_x + 10.0,
+                y,
+                14.0,
+                Color::from_rgba(255, 220, 100, 255),
+            );
+            y += line_h;
+
+            let all_focuses = build_focus_tree();
+            let available = civ.available_focuses(&all_focuses);
+            if available.is_empty() {
+                draw_text(
+                    "No focuses available yet",
+                    panel_x + 10.0,
+                    y,
+                    11.0,
+                    Color::from_rgba(150, 150, 150, 200),
+                );
+                y += line_h;
+            } else {
+                for focus in available.iter().take(5) {
+                    let afford = civ.divine_influence >= focus.cost;
+                    draw_text(
+                        &format!(
+                            "[{}] {} (cost: {:.0})",
+                            if afford { "1-5" } else { "??" },
+                            focus.name,
+                            focus.cost
+                        ),
+                        panel_x + 10.0,
+                        y,
+                        11.0,
+                        if afford {
+                            WHITE
+                        } else {
+                            Color::from_rgba(100, 100, 100, 150)
+                        },
+                    );
+                    y += line_h - 2.0;
+                }
+                if available.len() > 5 {
+                    draw_text(
+                        &format!("...and {} more", available.len() - 5),
+                        panel_x + 10.0,
+                        y,
+                        10.0,
+                        Color::from_rgba(150, 150, 150, 200),
                     );
                     y += line_h - 2.0;
                 }

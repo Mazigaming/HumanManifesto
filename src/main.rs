@@ -206,4 +206,45 @@ fn handle_input(sim: &mut Sim, ui: &mut UI, camera: &mut SimCamera) {
     if is_key_pressed(KeyCode::V) {
         ui.show_civilization = !ui.show_civilization;
     }
+
+    // Phase 6 — Divine guidance: number keys 1-9 select available focuses
+    if ui.show_civilization {
+        let all_focuses = crate::civilization::build_focus_tree();
+        for i in 1..=9 {
+            if is_key_pressed(match i {
+                1 => KeyCode::Key1,
+                2 => KeyCode::Key2,
+                3 => KeyCode::Key3,
+                4 => KeyCode::Key4,
+                5 => KeyCode::Key5,
+                6 => KeyCode::Key6,
+                7 => KeyCode::Key7,
+                8 => KeyCode::Key8,
+                _ => KeyCode::Key9,
+            }) {
+                if let Some(civ) = sim.evo.civilizations.first_mut() {
+                    let available: Vec<u32> = civ.available_focuses(&all_focuses)
+                        .iter()
+                        .map(|f| f.id)
+                        .collect();
+                    if let Some(&focus_id) = available.get(i - 1) {
+                        if let Some(focus) = all_focuses.iter().find(|f| f.id == focus_id) {
+                            if civ.spend_influence(focus.cost) {
+                                civ.unlock_focus(focus.id);
+                                let logs = civ.apply_effects(&focus.effects);
+                                for log in logs {
+                                    sim.evo.chronicle.push(format!("[{}] {}", civ.identity.name, log));
+                                }
+                                sim.evo.chronicle.push(format!(
+                                    "[{}] Purchased focus: {}",
+                                    civ.identity.name, focus.name
+                                ));
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
 }

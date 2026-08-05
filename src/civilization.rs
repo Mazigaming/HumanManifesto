@@ -493,6 +493,68 @@ impl Civilization {
         false
     }
 
+    pub fn apply_effects(&mut self, effects: &[FocusEffect]) -> Vec<String> {
+        let mut logs = Vec::new();
+        for effect in effects {
+            match effect {
+                FocusEffect::UnlockFocus(id) => self.unlock_focus(*id),
+                FocusEffect::ModifyStat(stat, delta) => match stat.as_str() {
+                    "stability" => {
+                        self.stability = (self.stability + delta).clamp(0.0, 100.0);
+                        logs.push(format!(
+                            "Stability {}{:.0}%",
+                            if *delta > 0.0 { "+" } else { "" },
+                            delta * 100.0
+                        ));
+                    }
+                    "authority" => {
+                        self.ideology.authority = (self.ideology.authority + delta).clamp(0.0, 1.0);
+                    }
+                    "equality" => {
+                        self.ideology.equality = (self.ideology.equality + delta).clamp(0.0, 1.0);
+                    }
+                    "tradition" => {
+                        self.ideology.tradition = (self.ideology.tradition + delta).clamp(0.0, 1.0);
+                    }
+                    "spirituality" => {
+                        self.ideology.spirituality =
+                            (self.ideology.spirituality + delta).clamp(0.0, 1.0);
+                    }
+                    "militarism" => {
+                        self.ideology.militarism =
+                            (self.ideology.militarism + delta).clamp(0.0, 1.0);
+                    }
+                    "individualism" => {
+                        self.ideology.individualism =
+                            (self.ideology.individualism + delta).clamp(0.0, 1.0);
+                    }
+                    _ => {}
+                },
+                FocusEffect::UnlockTech(id) => self.unlock_tech(*id),
+                FocusEffect::ChangeGovernment(gov) => {
+                    self.government_type = gov.clone();
+                    logs.push(format!("Government changed to {}", gov));
+                }
+                FocusEffect::SpawnEvent(desc) => {
+                    logs.push(desc.clone());
+                }
+                FocusEffect::GrantInfluence(amount) => {
+                    self.divine_influence += *amount;
+                }
+                FocusEffect::UnlockEra(era) => {
+                    self.current_era = era.clone();
+                    logs.push(format!("Era changed to {}", era));
+                }
+            }
+        }
+        if let Some(first) = effects.first() {
+            if let FocusEffect::ChangeGovernment(_) = first {
+                // already logged above
+            }
+        }
+        logs
+    }
+
     pub fn unlock_focus(&mut self, focus_id: u32) {
         if !self.unlocked_focuses.contains(&focus_id) {
             self.unlocked_focuses.push(focus_id);
@@ -521,4 +583,213 @@ impl Civilization {
             self.history.push(description.to_string());
         }
     }
+
+    pub fn available_focuses<'a>(&'a self, all_focuses: &'a [FocusNode]) -> Vec<&'a FocusNode> {
+        all_focuses
+            .iter()
+            .filter(|f| !self.unlocked_focuses.contains(&f.id) && f.is_available(self))
+            .collect()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CivBonus {
+    pub regen_bonus: f32,
+    pub food_bonus: f32,
+}
+
+pub fn build_focus_tree() -> Vec<FocusNode> {
+    vec![
+        FocusNode {
+            id: 1,
+            name: "Tribal Society".to_string(),
+            description: "Organize into a cohesive tribe".to_string(),
+            era: "Stone Age".to_string(),
+            cost: 0.0,
+            requirements: vec![],
+            effects: vec![
+                FocusEffect::UnlockFocus(2),
+                FocusEffect::ModifyStat("stability".to_string(), 0.1),
+            ],
+            unlocked_ids: vec![2],
+            category: "Social".to_string(),
+        },
+        FocusNode {
+            id: 2,
+            name: "The First Settlements".to_string(),
+            description: "Establish permanent dwellings".to_string(),
+            era: "Stone Age".to_string(),
+            cost: 30.0,
+            requirements: vec![FocusRequirement::Population(30)],
+            effects: vec![
+                FocusEffect::UnlockFocus(3),
+                FocusEffect::UnlockFocus(4),
+                FocusEffect::ModifyStat("stability".to_string(), 0.1),
+            ],
+            unlocked_ids: vec![3, 4],
+            category: "Social".to_string(),
+        },
+        FocusNode {
+            id: 3,
+            name: "Agricultural Path".to_string(),
+            description: "Embrace farming and permanent cities".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 50.0,
+            requirements: vec![FocusRequirement::EraReached("Agricultural Era".to_string())],
+            effects: vec![
+                FocusEffect::UnlockFocus(5),
+                FocusEffect::ModifyStat("tradition".to_string(), 0.1),
+                FocusEffect::ModifyStat("equality".to_string(), -0.05),
+            ],
+            unlocked_ids: vec![5],
+            category: "Technology".to_string(),
+        },
+        FocusNode {
+            id: 4,
+            name: "Nomadic Path".to_string(),
+            description: "Embrace the great migration".to_string(),
+            era: "Stone Age".to_string(),
+            cost: 50.0,
+            requirements: vec![FocusRequirement::EraReached("Agricultural Era".to_string())],
+            effects: vec![
+                FocusEffect::UnlockFocus(6),
+                FocusEffect::ModifyStat("individualism".to_string(), 0.15),
+                FocusEffect::ModifyStat("tradition".to_string(), -0.1),
+            ],
+            unlocked_ids: vec![6],
+            category: "Social".to_string(),
+        },
+        FocusNode {
+            id: 5,
+            name: "Permanent Cities".to_string(),
+            description: "Build lasting urban centers".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 80.0,
+            requirements: vec![
+                FocusRequirement::Population(100),
+                FocusRequirement::CityCount(1),
+            ],
+            effects: vec![
+                FocusEffect::UnlockFocus(7),
+                FocusEffect::UnlockFocus(8),
+                FocusEffect::ModifyStat("stability".to_string(), 0.15),
+            ],
+            unlocked_ids: vec![7, 8],
+            category: "Technology".to_string(),
+        },
+        FocusNode {
+            id: 6,
+            name: "Great Migration".to_string(),
+            description: "Expand across the continent".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 80.0,
+            requirements: vec![FocusRequirement::Population(100)],
+            effects: vec![
+                FocusEffect::UnlockFocus(9),
+                FocusEffect::ModifyStat("militarism".to_string(), 0.1),
+                FocusEffect::ModifyStat("authority".to_string(), 0.1),
+            ],
+            unlocked_ids: vec![9],
+            category: "Military".to_string(),
+        },
+        FocusNode {
+            id: 7,
+            name: "Centralized Government".to_string(),
+            description: "Consolidate power under a central authority".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 100.0,
+            requirements: vec![FocusRequirement::Population(200)],
+            effects: vec![
+                FocusEffect::UnlockFocus(10),
+                FocusEffect::ModifyStat("authority".to_string(), 0.2),
+                FocusEffect::ModifyStat("stability".to_string(), 0.1),
+            ],
+            unlocked_ids: vec![10],
+            category: "Political".to_string(),
+        },
+        FocusNode {
+            id: 8,
+            name: "Local Clans Federation".to_string(),
+            description: "Maintain clan autonomy with shared governance".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 100.0,
+            requirements: vec![FocusRequirement::Population(200)],
+            effects: vec![
+                FocusEffect::UnlockFocus(11),
+                FocusEffect::ModifyStat("equality".to_string(), 0.15),
+                FocusEffect::ModifyStat("tradition".to_string(), 0.1),
+            ],
+            unlocked_ids: vec![11],
+            category: "Political".to_string(),
+        },
+        FocusNode {
+            id: 9,
+            name: "Warrior Culture".to_string(),
+            description: "Embrace martial values and conquest".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 120.0,
+            requirements: vec![FocusRequirement::Population(150)],
+            effects: vec![
+                FocusEffect::UnlockFocus(12),
+                FocusEffect::ModifyStat("militarism".to_string(), 0.25),
+                FocusEffect::ModifyStat("authority".to_string(), 0.15),
+            ],
+            unlocked_ids: vec![12],
+            category: "Military".to_string(),
+        },
+        FocusNode {
+            id: 10,
+            name: "Monarchy".to_string(),
+            description: "Establish a hereditary monarchy".to_string(),
+            era: "Knowledge Era".to_string(),
+            cost: 150.0,
+            requirements: vec![
+                FocusRequirement::Population(300),
+                FocusRequirement::EraReached("Knowledge Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ChangeGovernment("Monarchy".to_string()),
+                FocusEffect::ModifyStat("authority".to_string(), 0.2),
+                FocusEffect::ModifyStat("tradition".to_string(), 0.2),
+            ],
+            unlocked_ids: vec![],
+            category: "Political".to_string(),
+        },
+        FocusNode {
+            id: 11,
+            name: "Republic".to_string(),
+            description: "Establish a representative council".to_string(),
+            era: "Knowledge Era".to_string(),
+            cost: 150.0,
+            requirements: vec![
+                FocusRequirement::Population(300),
+                FocusRequirement::EraReached("Knowledge Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ChangeGovernment("Republic".to_string()),
+                FocusEffect::ModifyStat("equality".to_string(), 0.2),
+                FocusEffect::ModifyStat("individualism".to_string(), 0.15),
+            ],
+            unlocked_ids: vec![],
+            category: "Political".to_string(),
+        },
+        FocusNode {
+            id: 12,
+            name: "Military Dictatorship".to_string(),
+            description: "Rule through military strength".to_string(),
+            era: "Agricultural Era".to_string(),
+            cost: 200.0,
+            requirements: vec![
+                FocusRequirement::Population(400),
+                FocusRequirement::EraReached("Knowledge Era".to_string()),
+            ],
+            effects: vec![
+                FocusEffect::ChangeGovernment("Military Dictatorship".to_string()),
+                FocusEffect::ModifyStat("militarism".to_string(), 0.3),
+                FocusEffect::ModifyStat("authority".to_string(), 0.25),
+            ],
+            unlocked_ids: vec![],
+            category: "Military".to_string(),
+        },
+    ]
 }
