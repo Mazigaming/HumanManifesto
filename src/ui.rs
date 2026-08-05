@@ -9,6 +9,7 @@ pub struct UI {
     pub use_same_seed: bool,
     pub show_gene_pool: bool,
     pub show_tribes: bool,
+    pub show_civilization: bool,
 }
 
 impl UI {
@@ -19,6 +20,7 @@ impl UI {
             use_same_seed: false,
             show_gene_pool: false,
             show_tribes: false,
+            show_civilization: false,
         }
     }
 
@@ -156,12 +158,25 @@ impl UI {
             Color::from_rgba(180, 180, 180, 200),
         );
 
+        let civ_hint_y = tribe_hint_y + 18.0;
+        draw_text(
+            "[V] Civilization",
+            10.0,
+            civ_hint_y,
+            14.0,
+            Color::from_rgba(180, 180, 180, 200),
+        );
+
         if self.show_gene_pool {
             self.draw_gene_pool(sim);
         }
 
         if self.show_tribes {
             self.draw_tribe_panel(sim);
+        }
+
+        if self.show_civilization {
+            self.draw_civilization_panel(sim);
         }
 
         self.draw_minimap(sim);
@@ -517,6 +532,187 @@ impl UI {
                 Color::from_rgba(255, 200, 150, 255),
             );
             y += line_h;
+        }
+    }
+
+    pub fn draw_civilization_panel(&self, sim: &Sim) {
+        let civs = &sim.evo.civilizations;
+        if civs.is_empty() {
+            return;
+        }
+
+        let sw = screen_width();
+        let panel_w = 360.0;
+        let panel_h = 500.0;
+        let panel_x = sw - panel_w - 20.0;
+        let panel_y = 70.0;
+
+        draw_rectangle(
+            panel_x,
+            panel_y,
+            panel_w,
+            panel_h,
+            Color::from_rgba(20, 20, 30, 230),
+        );
+        draw_rectangle_lines(
+            panel_x,
+            panel_y,
+            panel_w,
+            panel_h,
+            2.0,
+            Color::from_rgba(255, 220, 100, 255),
+        );
+
+        let mut y = panel_y + 20.0;
+        let line_h = 16.0;
+
+        for civ in civs.iter().take(1) {
+            draw_text(
+                &format!("CIVILIZATION: {}", civ.identity.name),
+                panel_x + 10.0,
+                y,
+                18.0,
+                Color::from_rgba(255, 220, 100, 255),
+            );
+            y += line_h + 4.0;
+
+            draw_text(
+                &format!(
+                    "Trait: {} | Era: {}",
+                    civ.identity.primary_trait, civ.current_era
+                ),
+                panel_x + 10.0,
+                y,
+                13.0,
+                WHITE,
+            );
+            y += line_h;
+
+            draw_text(
+                &format!(
+                    "Gov: {} | Pop: {} | Stability: {:.0}%",
+                    civ.government_type,
+                    civ.total_population(),
+                    civ.stability
+                ),
+                panel_x + 10.0,
+                y,
+                13.0,
+                WHITE,
+            );
+            y += line_h;
+
+            draw_text(
+                &format!("Divine Influence: {:.0}", civ.divine_influence),
+                panel_x + 10.0,
+                y,
+                14.0,
+                Color::from_rgba(255, 200, 100, 255),
+            );
+            y += line_h + 6.0;
+
+            draw_text(
+                "IDEOLOGY",
+                panel_x + 10.0,
+                y,
+                14.0,
+                Color::from_rgba(255, 220, 100, 255),
+            );
+            y += line_h;
+
+            let ideology_labels = vec![
+                ("Authority", civ.ideology.authority),
+                ("Equality", civ.ideology.equality),
+                ("Tradition", civ.ideology.tradition),
+                ("Spirituality", civ.ideology.spirituality),
+                ("Militarism", civ.ideology.militarism),
+                ("Individualism", civ.ideology.individualism),
+            ];
+
+            for (label, value) in ideology_labels {
+                let bar_w = (value * 80.0) as f32;
+                draw_text(
+                    &format!("{}: {:.0}%", label, value * 100.0),
+                    panel_x + 10.0,
+                    y,
+                    11.0,
+                    WHITE,
+                );
+                draw_rectangle(
+                    panel_x + 80.0,
+                    y - 8.0,
+                    bar_w,
+                    6.0,
+                    Color::from_rgba(
+                        (value * 255.0) as u8,
+                        150,
+                        ((1.0 - value) * 255.0) as u8,
+                        200,
+                    ),
+                );
+                draw_rectangle_lines(
+                    panel_x + 80.0,
+                    y - 8.0,
+                    80.0,
+                    6.0,
+                    1.0,
+                    Color::from_rgba(100, 100, 100, 150),
+                );
+                y += line_h;
+            }
+
+            y += 4.0;
+
+            if !civ.cities.is_empty() {
+                draw_text(
+                    "CITIES",
+                    panel_x + 10.0,
+                    y,
+                    14.0,
+                    Color::from_rgba(255, 220, 100, 255),
+                );
+                y += line_h;
+
+                for city in civ.cities.iter().take(4) {
+                    draw_text(
+                        &format!("{} (pop: {})", city.name, city.population),
+                        panel_x + 10.0,
+                        y,
+                        11.0,
+                        WHITE,
+                    );
+                    y += line_h;
+                }
+                y += 4.0;
+            }
+
+            if !civ.history.is_empty() {
+                draw_text(
+                    "HISTORY",
+                    panel_x + 10.0,
+                    y,
+                    14.0,
+                    Color::from_rgba(255, 220, 100, 255),
+                );
+                y += line_h;
+
+                let start_idx = civ.history.len().saturating_sub(4);
+                for entry in civ.history[start_idx..].iter().rev() {
+                    let display = if entry.len() > 30 {
+                        format!("{}...", &entry[..27])
+                    } else {
+                        entry.clone()
+                    };
+                    draw_text(
+                        &display,
+                        panel_x + 10.0,
+                        y,
+                        10.0,
+                        Color::from_rgba(200, 200, 200, 200),
+                    );
+                    y += line_h - 2.0;
+                }
+            }
         }
     }
 

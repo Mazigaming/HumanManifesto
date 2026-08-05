@@ -75,6 +75,7 @@ impl Sim {
 
         self.sim_time = 0.0;
         self.accumulator = 0.0;
+        self.day_count = 0;
         self.is_loading = false;
     }
 
@@ -107,6 +108,7 @@ impl Sim {
         self.sim_time += _dt;
         self.day_count += 1;
         self.evo.tick(&mut self.world);
+        self.evo.update_civilizations(&self.world);
     }
 
     pub fn formatted_date(&self) -> String {

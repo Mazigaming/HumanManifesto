@@ -42,6 +42,8 @@ pub struct EvolutionSim {
     pub diplomatic_relations: Vec<DiplomaticRelation>,
     pub sectors: Vec<Sector>,
     pub sector_size: i32,
+    pub civilizations: Vec<crate::civilization::Civilization>,
+    pub divine_influence: f64,
     next_id: u64,
     next_lineage_id: u32,
     next_tribe_id: u32,
@@ -71,6 +73,8 @@ impl EvolutionSim {
             diplomatic_relations: Vec::new(),
             sectors: Vec::new(),
             sector_size: 20,
+            civilizations: Vec::new(),
+            divine_influence: 0.0,
             next_id: 1,
             next_lineage_id: 1,
             next_tribe_id: 1,
@@ -2074,5 +2078,110 @@ impl EvolutionSim {
 
     pub fn get_belief(&self, belief_id: u32) -> Option<&Belief> {
         self.beliefs.iter().find(|b| b.id == belief_id)
+    }
+
+    // Phase 6 — Civilization detection and divine influence
+    pub fn update_civilizations(&mut self, world: &World) {
+        // Check for tribes that should become civilizations
+        for tribe in &self.tribes {
+            if tribe.is_extinct {
+                continue;
+            }
+            let member_count = tribe.member_ids.len();
+            let already_civ = self.civilizations.iter().any(|c| {
+                c.identity.name == tribe.name || c.history.iter().any(|h| h.contains(&tribe.name))
+            });
+
+            if member_count >= 30
+                && tribe.knowledge >= 100.0
+                && !already_civ
+                && self.civilizations.len() < 5
+            {
+                let primary_trait = match tribe.culture_profile.communal {
+                    c if c > 0.7 => "Agricultural".to_string(),
+                    _ => {
+                        let has_water = tribe.member_ids.iter().any(|id| {
+                            self.agents.iter().find(|a| a.id == *id).map_or(false, |a| {
+                                world
+                                    .get_tile(a.col, a.row)
+                                    .map_or(false, |t| t.biome == crate::world::Biome::Swamp)
+                            })
+                        });
+                        if has_water {
+                            "River".to_string()
+                        } else {
+                            "Mountain".to_string()
+                        }
+                    }
+                };
+
+                let mut civ = crate::civilization::Civilization::new(
+                    tribe.id,
+                    tribe.name.clone(),
+                    primary_trait,
+                    self.tick_count,
+                );
+
+                civ.ideology.authority = tribe.culture_profile.communal;
+                civ.ideology.equality = tribe.culture_profile.communal;
+                civ.ideology.tradition = tribe.culture_profile.traditional;
+                civ.ideology.spirituality = 0.5;
+                civ.ideology.militarism = tribe.culture_profile.warlike;
+                civ.ideology.individualism = 1.0 - tribe.culture_profile.communal;
+
+                civ.government_type = civ.ideology.government_type().to_string();
+
+                // Transfer tribe knowledge to civilization
+                let _tech_count = tribe.unlocked_tech.len();
+                for (i, &_tech_id) in tribe.unlocked_tech.iter().enumerate() {
+                    if i < civ.tech_tree.len() {
+                        civ.tech_tree[i].unlocked = true;
+                        civ.tech_tree[i].progress = 100.0;
+                    }
+                }
+
+                self.civilizations.push(civ);
+                self.divine_influence += 100.0;
+
+                self.chronicle.push(format!(
+                    "The {} tribe has evolved into a civilization!",
+                    tribe.name
+                ));
+            }
+        }
+
+        // Earn divine influence from milestones
+        for civ in &mut self.civilizations {
+            let pop = civ.total_population();
+            let prev_earned = civ.total_influence_earned;
+
+            // Population milestones
+            let pop_thresholds = vec![100.0, 500.0, 1000.0, 5000.0, 10000.0];
+            for &threshold in &pop_thresholds {
+                if pop as f32 >= threshold && prev_earned < threshold {
+                    civ.earn_influence(25.0, &format!("Population reached {}", threshold));
+                    self.divine_influence += 25.0;
+                }
+            }
+
+            // Tech milestones
+            let tech_count = civ.tech_tree.iter().filter(|t| t.unlocked).count();
+            if tech_count >= 5 && prev_earned < 200.0 {
+                civ.earn_influence(30.0, "Multiple technologies discovered");
+                self.divine_influence += 30.0;
+            }
+
+            // Era advancement
+            if civ.current_era != "Stone Age" && prev_earned < 150.0 {
+                civ.earn_influence(20.0, &format!("Entered the {}", civ.current_era));
+                self.divine_influence += 20.0;
+            }
+
+            // Stability bonus
+            if civ.stability > 80.0 && self.tick_count % 100 == 0 {
+                civ.earn_influence(5.0, "Stable society");
+                self.divine_influence += 5.0;
+            }
+        }
     }
 }

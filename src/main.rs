@@ -1,5 +1,6 @@
 mod agent;
 mod camera;
+mod civilization;
 mod evolution;
 mod lineage;
 mod render;
@@ -201,5 +202,8 @@ fn handle_input(sim: &mut Sim, ui: &mut UI, camera: &mut SimCamera) {
     }
     if is_key_pressed(KeyCode::T) {
         ui.show_tribes = !ui.show_tribes;
+    }
+    if is_key_pressed(KeyCode::V) {
+        ui.show_civilization = !ui.show_civilization;
     }
 }
