@@ -60,6 +60,8 @@ impl Lineage {
             sight_range: 0.0,
             cold_tolerance: 0.0,
             heat_tolerance: 0.0,
+            sexuality: 0.0,
+            intelligence: 0.0,
         };
 
         for genome in genomes {
@@ -74,6 +76,8 @@ impl Lineage {
             avg.sight_range += genome.sight_range;
             avg.cold_tolerance += genome.cold_tolerance;
             avg.heat_tolerance += genome.heat_tolerance;
+            avg.sexuality += genome.sexuality;
+            avg.intelligence += genome.intelligence;
         }
 
         avg.speed /= count;
@@ -87,6 +91,8 @@ impl Lineage {
         avg.sight_range /= count;
         avg.cold_tolerance /= count;
         avg.heat_tolerance /= count;
+        avg.sexuality /= count;
+        avg.intelligence /= count;
 
         self.centroid_genome = avg;
         self.dominant_color = avg.phenotype_color();
@@ -108,9 +114,11 @@ impl Lineage {
             + (genome.lifespan - c.lifespan).powi(2)
             + (genome.sight_range - c.sight_range).powi(2)
             + (genome.cold_tolerance - c.cold_tolerance).powi(2)
-            + (genome.heat_tolerance - c.heat_tolerance).powi(2))
+            + (genome.heat_tolerance - c.heat_tolerance).powi(2)
+            + (genome.sexuality - c.sexuality).powi(2)
+            + (genome.intelligence - c.intelligence).powi(2))
         .sqrt();
-        dist / 3.162 // Normalize: sqrt(10) max distance
+        dist / 3.873 // Normalize: sqrt(15) max distance
     }
 }
 

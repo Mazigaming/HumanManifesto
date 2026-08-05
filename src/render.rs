@@ -53,6 +53,31 @@ impl Renderer {
         )
     }
 
+    fn hue_to_color(hue: f32) -> Color {
+        let c = 0.8;
+        let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+        let m = 0.2;
+        let (r, g, b) = if hue < 60.0 {
+            (c, x, 0.0)
+        } else if hue < 120.0 {
+            (x, c, 0.0)
+        } else if hue < 180.0 {
+            (0.0, c, x)
+        } else if hue < 240.0 {
+            (0.0, x, c)
+        } else if hue < 300.0 {
+            (x, 0.0, c)
+        } else {
+            (c, 0.0, x)
+        };
+        Color::from_rgba(
+            ((r + m) * 255.0) as u8,
+            ((g + m) * 255.0) as u8,
+            ((b + m) * 255.0) as u8,
+            255,
+        )
+    }
+
     pub fn draw_agents(
         &self,
         agents: &[Agent],
@@ -95,16 +120,86 @@ impl Renderer {
             // Lineage base color
             let lineage_base = Self::lineage_color(agent.lineage_id);
 
+            // Belief color overlay (subtle tint)
+            let belief_color = agent.belief_id.map(|id| {
+                let hue = (id as f32 * 137.508) % 360.0;
+                let c = 0.5;
+                let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+                let m = 0.5 - c;
+                let (r, g, b) = if hue < 60.0 {
+                    (c, x, 0.0)
+                } else if hue < 120.0 {
+                    (x, c, 0.0)
+                } else if hue < 180.0 {
+                    (0.0, c, x)
+                } else if hue < 240.0 {
+                    (0.0, x, c)
+                } else if hue < 300.0 {
+                    (x, 0.0, c)
+                } else {
+                    (c, 0.0, x)
+                };
+                Color::from_rgba(
+                    ((r + m) * 255.0) as u8,
+                    ((g + m) * 255.0) as u8,
+                    ((b + m) * 255.0) as u8,
+                    255,
+                )
+            });
+
+            // Tribe color overlay
+            let tribe_color = agent.tribe_id.map(|id| {
+                let hue = (id as f32 * 137.508 * 1.5) % 360.0;
+                let c = 0.4;
+                let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+                let m = 0.6 - c;
+                let (r, g, b) = if hue < 60.0 {
+                    (c, x, 0.0)
+                } else if hue < 120.0 {
+                    (x, c, 0.0)
+                } else if hue < 180.0 {
+                    (0.0, c, x)
+                } else if hue < 240.0 {
+                    (0.0, x, c)
+                } else if hue < 300.0 {
+                    (x, 0.0, c)
+                } else {
+                    (c, 0.0, x)
+                };
+                Color::from_rgba(
+                    ((r + m) * 255.0) as u8,
+                    ((g + m) * 255.0) as u8,
+                    ((b + m) * 255.0) as u8,
+                    255,
+                )
+            });
+
             // Enhance phenotype with lineage color and trait-based variation
             let g = &agent.genome;
-            let r = ((lineage_base.r as f32 * 0.6 + g.aggression * 100.0 + g.speed * 50.0) as u8)
-                .min(255);
-            let gr = ((lineage_base.g as f32 * 0.6 + g.metabolism * 80.0 + g.camouflage * 60.0)
+            let mut r = ((lineage_base.r as f32 * 0.6 + g.aggression * 100.0 + g.speed * 50.0)
                 as u8)
                 .min(255);
-            let b = ((lineage_base.b as f32 * 0.6 + g.sociability * 100.0 + g.sight_range * 40.0)
+            let mut gr = ((lineage_base.g as f32 * 0.6 + g.metabolism * 80.0 + g.camouflage * 60.0)
                 as u8)
                 .min(255);
+            let mut b = ((lineage_base.b as f32 * 0.6
+                + g.sociability * 100.0
+                + g.sight_range * 40.0) as u8)
+                .min(255);
+
+            // Blend in belief color
+            if let Some(bc) = belief_color {
+                r = ((r as f32 * 0.7 + bc.r as f32 * 0.3) as u8).min(255);
+                gr = ((gr as f32 * 0.7 + bc.g as f32 * 0.3) as u8).min(255);
+                b = ((b as f32 * 0.7 + bc.b as f32 * 0.3) as u8).min(255);
+            }
+
+            // Blend in tribe color (subtle)
+            if let Some(tc) = tribe_color {
+                r = ((r as f32 * 0.85 + tc.r as f32 * 0.15) as u8).min(255);
+                gr = ((gr as f32 * 0.85 + tc.g as f32 * 0.15) as u8).min(255);
+                b = ((b as f32 * 0.85 + tc.b as f32 * 0.15) as u8).min(255);
+            }
 
             let base_color = Color::from_rgba(r, gr, b, 255);
 
@@ -179,6 +274,7 @@ impl Renderer {
                         Color::from_rgba(50, 255, 50, 255)
                     }
                     BehaviorState::Reproducing => Color::from_rgba(255, 150, 50, 255),
+                    BehaviorState::Pregnant => Color::from_rgba(255, 100, 200, 255),
                     BehaviorState::Socializing => Color::from_rgba(50, 150, 255, 255),
                     BehaviorState::Fighting => Color::from_rgba(255, 0, 0, 255),
                     BehaviorState::Infected => Color::from_rgba(150, 0, 255, 255),
@@ -187,6 +283,50 @@ impl Renderer {
 
                 // Draw state ring (thicker for visibility)
                 draw_circle_lines(center.x, center.y, size + 2.0, 1.5, ring_color);
+
+                // Pregnancy indicator
+                if agent.pregnancy_days > 0 {
+                    let progress = 1.0 - (agent.pregnancy_days as f32 / 120.0);
+                    let baby_bump_size = size * 0.35 * (0.5 + progress * 0.5);
+                    draw_circle(
+                        center.x,
+                        center.y + size * 0.4,
+                        baby_bump_size,
+                        Color::from_rgba(255, 150, 200, 220),
+                    );
+                    let pulse = ((agent.pregnancy_days / 5) % 10) as f32 / 10.0;
+                    draw_circle_lines(
+                        center.x,
+                        center.y + size * 0.4,
+                        baby_bump_size + 1.0 + pulse,
+                        1.0,
+                        Color::from_rgba(255, 100, 150, 180),
+                    );
+                }
+
+                // Belief indicator (small dot)
+                if let Some(belief_id) = agent.belief_id {
+                    let belief_hue = (belief_id as f32 * 137.508) % 360.0;
+                    let belief_color = Self::hue_to_color(belief_hue);
+                    draw_circle(
+                        center.x + size * 0.6,
+                        center.y - size * 0.6,
+                        size * 0.25,
+                        belief_color,
+                    );
+                }
+
+                // Gender indicator (small M/F)
+                let gender_color = match agent.gender {
+                    crate::agent::Gender::Male => Color::from_rgba(100, 200, 255, 255),
+                    crate::agent::Gender::Female => Color::from_rgba(255, 150, 200, 255),
+                };
+                draw_circle(
+                    center.x - size * 0.6,
+                    center.y - size * 0.6,
+                    size * 0.2,
+                    gender_color,
+                );
 
                 // Golden mutation highlight (more pronounced)
                 if agent.highlight_timer > 0 {

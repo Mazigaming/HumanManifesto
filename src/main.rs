@@ -4,6 +4,9 @@ mod evolution;
 mod lineage;
 mod render;
 mod sim;
+mod tribe;
+mod belief;
+mod diplomacy;
 mod ui;
 mod world;
 
@@ -192,5 +195,11 @@ fn handle_input(sim: &mut Sim, ui: &mut UI, camera: &mut SimCamera) {
     }
     if is_key_pressed(KeyCode::C) {
         center_camera_on_world(camera, sim);
+    }
+    if is_key_pressed(KeyCode::G) {
+        ui.show_gene_pool = !ui.show_gene_pool;
+    }
+    if is_key_pressed(KeyCode::T) {
+        ui.show_tribes = !ui.show_tribes;
     }
 }

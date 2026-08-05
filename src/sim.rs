@@ -107,7 +107,7 @@ impl Sim {
         self.sim_time += _dt;
         // 1 second of real time = 1 day at 1x speed
         self.day_count = self.sim_time.floor() as u64;
-        self.evo.tick(&self.world);
+        self.evo.tick(&mut self.world);
     }
 
     pub fn formatted_date(&self) -> String {

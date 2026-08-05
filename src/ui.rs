@@ -1,10 +1,14 @@
+use crate::belief::Belief;
 use crate::sim::Sim;
+use crate::tribe::Tribe;
 use macroquad::prelude::*;
 
 pub struct UI {
     pub map_width: i32,
     pub map_height: i32,
     pub use_same_seed: bool,
+    pub show_gene_pool: bool,
+    pub show_tribes: bool,
 }
 
 impl UI {
@@ -13,6 +17,8 @@ impl UI {
             map_width: 200,
             map_height: 200,
             use_same_seed: false,
+            show_gene_pool: false,
+            show_tribes: false,
         }
     }
 
@@ -129,6 +135,478 @@ impl UI {
             lineage_y,
             14.0,
             Color::from_rgba(150, 200, 255, 255),
+        );
+
+        // Gene pool viewer toggle hint
+        let gene_pool_hint_y = lineage_y + 20.0;
+        draw_text(
+            "[G] Gene Pool",
+            10.0,
+            gene_pool_hint_y,
+            14.0,
+            Color::from_rgba(180, 180, 180, 200),
+        );
+
+        let tribe_hint_y = gene_pool_hint_y + 18.0;
+        draw_text(
+            "[T] Tribes",
+            10.0,
+            tribe_hint_y,
+            14.0,
+            Color::from_rgba(180, 180, 180, 200),
+        );
+
+        if self.show_gene_pool {
+            self.draw_gene_pool(sim);
+        }
+
+        if self.show_tribes {
+            self.draw_tribe_panel(sim);
+        }
+
+        self.draw_minimap(sim);
+    }
+
+    pub fn draw_gene_pool(&self, sim: &Sim) {
+        let agents = &sim.evo.agents;
+        if agents.is_empty() {
+            return;
+        }
+
+        let sw = screen_width();
+        let sh = screen_height();
+        let panel_w = 320.0;
+        let panel_h = 420.0;
+        let panel_x = sw - panel_w - 20.0;
+        let panel_y = 70.0;
+
+        draw_rectangle(
+            panel_x,
+            panel_y,
+            panel_w,
+            panel_h,
+            Color::from_rgba(20, 20, 30, 230),
+        );
+        draw_rectangle_lines(
+            panel_x,
+            panel_y,
+            panel_w,
+            panel_h,
+            2.0,
+            Color::from_rgba(100, 200, 255, 255),
+        );
+
+        let mut y = panel_y + 20.0;
+        let line_h = 16.0;
+
+        draw_text(
+            "GENE POOL",
+            panel_x + 10.0,
+            y,
+            18.0,
+            Color::from_rgba(255, 220, 100, 255),
+        );
+        y += 25.0;
+
+        draw_text(
+            &format!("Population: {}", agents.len()),
+            panel_x + 10.0,
+            y,
+            14.0,
+            WHITE,
+        );
+        y += line_h;
+
+        let mut male_count = 0;
+        let mut female_count = 0;
+        let mut pregnant_count = 0;
+        let mut hetero = 0;
+        let mut bi = 0;
+        let mut homo = 0;
+        let mut trait_sums = [0.0; 13];
+        let trait_names = [
+            "Speed",
+            "Strength",
+            "Fertility",
+            "Metabolism",
+            "Aggression",
+            "Sociability",
+            "Camouflage",
+            "Lifespan",
+            "Sight",
+            "ColdTol",
+            "HeatTol",
+            "Sexuality",
+            "Intelligence",
+        ];
+
+        for agent in agents {
+            match agent.gender {
+                crate::agent::Gender::Male => male_count += 1,
+                crate::agent::Gender::Female => female_count += 1,
+            }
+            if agent.pregnancy_days > 0 {
+                pregnant_count += 1;
+            }
+            let s = agent.genome.sexuality;
+            if s < 0.3 {
+                hetero += 1;
+            } else if s < 0.7 {
+                bi += 1;
+            } else {
+                homo += 1;
+            }
+            trait_sums[0] += agent.genome.speed;
+            trait_sums[1] += agent.genome.strength;
+            trait_sums[2] += agent.genome.fertility;
+            trait_sums[3] += agent.genome.metabolism;
+            trait_sums[4] += agent.genome.aggression;
+            trait_sums[5] += agent.genome.sociability;
+            trait_sums[6] += agent.genome.camouflage;
+            trait_sums[7] += agent.genome.lifespan;
+            trait_sums[8] += agent.genome.sight_range;
+            trait_sums[9] += agent.genome.cold_tolerance;
+            trait_sums[10] += agent.genome.heat_tolerance;
+            trait_sums[11] += agent.genome.sexuality;
+            trait_sums[12] += agent.genome.intelligence;
+        }
+
+        let n = agents.len() as f32;
+        let male_pct = male_count as f32 / n * 100.0;
+        let female_pct = female_count as f32 / n * 100.0;
+        let hetero_pct = hetero as f32 / n * 100.0;
+        let bi_pct = bi as f32 / n * 100.0;
+        let homo_pct = homo as f32 / n * 100.0;
+
+        draw_text(
+            &format!(
+                "Gender: {}M {}F ({:.0}%/{:.0}%)",
+                male_count, female_count, male_pct, female_pct
+            ),
+            panel_x + 10.0,
+            y,
+            13.0,
+            Color::from_rgba(200, 200, 200, 255),
+        );
+        y += line_h;
+
+        draw_text(
+            &format!("Pregnant: {}", pregnant_count),
+            panel_x + 10.0,
+            y,
+            13.0,
+            Color::from_rgba(200, 200, 200, 255),
+        );
+        y += line_h;
+
+        draw_text(
+            &format!(
+                "Sexuality: {}% hetero {}% bi {}% homo",
+                hetero_pct as u32, bi_pct as u32, homo_pct as u32
+            ),
+            panel_x + 10.0,
+            y,
+            13.0,
+            Color::from_rgba(200, 200, 200, 255),
+        );
+        y += line_h + 4.0;
+
+        draw_text(
+            "AVERAGE TRAITS",
+            panel_x + 10.0,
+            y,
+            14.0,
+            Color::from_rgba(255, 220, 100, 255),
+        );
+        y += line_h;
+
+        for (i, name) in trait_names.iter().enumerate() {
+            let avg = trait_sums[i] / n;
+            let bar_w = (avg * 80.0) as f32;
+            draw_text(
+                &format!("{}: {:.2}", name, avg),
+                panel_x + 10.0,
+                y,
+                12.0,
+                WHITE,
+            );
+            draw_rectangle(
+                panel_x + 90.0,
+                y - 10.0,
+                bar_w,
+                8.0,
+                Color::from_rgba((avg * 255.0) as u8, 150, ((1.0 - avg) * 255.0) as u8, 200),
+            );
+            draw_rectangle_lines(
+                panel_x + 90.0,
+                y - 10.0,
+                80.0,
+                8.0,
+                1.0,
+                Color::from_rgba(100, 100, 100, 150),
+            );
+            y += line_h;
+        }
+
+        y += 6.0;
+        draw_text(
+            "DOMINANT LINEAGES",
+            panel_x + 10.0,
+            y,
+            14.0,
+            Color::from_rgba(255, 220, 100, 255),
+        );
+        y += line_h;
+
+        let mut lineage_pops: Vec<(u32, usize, String)> = sim
+            .evo
+            .lineages
+            .iter()
+            .map(|l| (l.id, l.member_count, l.name.clone()))
+            .collect();
+        lineage_pops.sort_by(|a, b| b.1.cmp(&a.1));
+        let top = lineage_pops.iter().take(5);
+        for (id, count, name) in top {
+            draw_text(
+                &format!("{}: {} (id:{})", name, count, id),
+                panel_x + 10.0,
+                y,
+                12.0,
+                Color::from_rgba(180, 200, 255, 255),
+            );
+            y += line_h;
+        }
+    }
+
+    pub fn draw_tribe_panel(&self, sim: &Sim) {
+        let tribes = &sim.evo.tribes;
+        if tribes.is_empty() {
+            return;
+        }
+
+        let sw = screen_width();
+        let panel_w = 300.0;
+        let panel_h = 350.0;
+        let panel_x = sw - panel_w - 20.0;
+        let panel_y = 70.0;
+
+        draw_rectangle(
+            panel_x,
+            panel_y,
+            panel_w,
+            panel_h,
+            Color::from_rgba(20, 20, 30, 230),
+        );
+        draw_rectangle_lines(
+            panel_x,
+            panel_y,
+            panel_w,
+            panel_h,
+            2.0,
+            Color::from_rgba(100, 200, 255, 255),
+        );
+
+        let mut y = panel_y + 20.0;
+        let line_h = 16.0;
+
+        draw_text(
+            "TRIBES",
+            panel_x + 10.0,
+            y,
+            18.0,
+            Color::from_rgba(255, 220, 100, 255),
+        );
+        y += 25.0;
+
+        draw_text(
+            &format!("Active Tribes: {}", tribes.len()),
+            panel_x + 10.0,
+            y,
+            14.0,
+            WHITE,
+        );
+        y += line_h;
+
+        draw_text(
+            &format!("Beliefs: {}", sim.evo.beliefs.len()),
+            panel_x + 10.0,
+            y,
+            14.0,
+            Color::from_rgba(200, 200, 200, 255),
+        );
+        y += line_h;
+
+        draw_text(
+            &format!(
+                "Diplomatic Relations: {}",
+                sim.evo.diplomatic_relations.len()
+            ),
+            panel_x + 10.0,
+            y,
+            14.0,
+            Color::from_rgba(200, 200, 200, 255),
+        );
+        y += line_h + 4.0;
+
+        draw_text(
+            "TOP TRIBES",
+            panel_x + 10.0,
+            y,
+            14.0,
+            Color::from_rgba(255, 220, 100, 255),
+        );
+        y += line_h;
+
+        let mut tribe_pops: Vec<(&Tribe, usize, Color)> = tribes
+            .iter()
+            .map(|t| (t, t.member_count(), t.culture_profile.color()))
+            .collect();
+        tribe_pops.sort_by(|a, b| b.1.cmp(&a.1));
+        let top = tribe_pops.iter().take(6);
+        for (tribe, count, color) in top {
+            draw_text(
+                &format!(
+                    "{}: {} | Know: {:.0}",
+                    if tribe.name.len() > 10 {
+                        &tribe.name[..10]
+                    } else {
+                        &tribe.name
+                    },
+                    count,
+                    tribe.knowledge
+                ),
+                panel_x + 10.0,
+                y,
+                12.0,
+                *color,
+            );
+            y += line_h;
+        }
+
+        y += 6.0;
+        draw_text(
+            "BELIEFS",
+            panel_x + 10.0,
+            y,
+            14.0,
+            Color::from_rgba(255, 220, 100, 255),
+        );
+        y += line_h;
+
+        let mut belief_pops: Vec<(&Belief, usize)> = sim
+            .evo
+            .beliefs
+            .iter()
+            .map(|b| {
+                let adherents = sim
+                    .evo
+                    .agents
+                    .iter()
+                    .filter(|a| a.belief_id == Some(b.id))
+                    .count();
+                (b, adherents)
+            })
+            .collect();
+        belief_pops.sort_by(|a, b| b.1.cmp(&a.1));
+        for (belief, count) in belief_pops.iter().take(5) {
+            draw_text(
+                &format!("{}: {}", belief.name, count),
+                panel_x + 10.0,
+                y,
+                12.0,
+                Color::from_rgba(255, 200, 150, 255),
+            );
+            y += line_h;
+        }
+    }
+
+    fn hue_to_color(hue: f32) -> Color {
+        let c = 0.8;
+        let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+        let m = 0.2;
+        let (r, g, b) = if hue < 60.0 {
+            (c, x, 0.0)
+        } else if hue < 120.0 {
+            (x, c, 0.0)
+        } else if hue < 180.0 {
+            (0.0, c, x)
+        } else if hue < 240.0 {
+            (0.0, x, c)
+        } else if hue < 300.0 {
+            (x, 0.0, c)
+        } else {
+            (c, 0.0, x)
+        };
+        Color::from_rgba(
+            ((r + m) * 255.0) as u8,
+            ((g + m) * 255.0) as u8,
+            ((b + m) * 255.0) as u8,
+            255,
+        )
+    }
+
+    pub fn draw_minimap(&self, sim: &Sim) {
+        let sw = screen_width();
+        let sh = screen_height();
+        let map_w = 180.0;
+        let map_h = 120.0;
+        let map_x = sw - map_w - 20.0;
+        let map_y = sh - map_h - 20.0;
+
+        draw_rectangle(map_x, map_y, map_w, map_h, Color::from_rgba(0, 0, 0, 180));
+        draw_rectangle_lines(
+            map_x,
+            map_y,
+            map_w,
+            map_h,
+            1.0,
+            Color::from_rgba(100, 100, 100, 255),
+        );
+
+        let world = &sim.world;
+        let scale_x = map_w / world.width as f32;
+        let scale_y = map_h / world.height as f32;
+
+        for tile in &world.tiles {
+            if tile.biome == crate::world::Biome::Ocean {
+                continue;
+            }
+            let x = map_x + tile.col as f32 * scale_x;
+            let y = map_y + tile.row as f32 * scale_y;
+            let color = tile.biome.color();
+            let alpha = if tile.resource.is_some() { 1.0 } else { 0.6 };
+            let mut final_color = color;
+            final_color.a = alpha;
+            draw_rectangle(x, y, scale_x.max(1.0), scale_y.max(1.0), final_color);
+        }
+
+        for agent in &sim.evo.agents {
+            let x = map_x + agent.col as f32 * scale_x;
+            let y = map_y + agent.row as f32 * scale_y;
+            let color = if let Some(tribe_id) = agent.tribe_id {
+                let hue = (tribe_id as f32 * 137.508 * 1.5) % 360.0;
+                Self::hue_to_color(hue)
+            } else {
+                WHITE
+            };
+            draw_circle(x, y, 1.5, color);
+        }
+
+        draw_text(
+            "MINIMAP",
+            map_x + 5.0,
+            map_y + 12.0,
+            10.0,
+            Color::from_rgba(200, 200, 200, 200),
+        );
+
+        let legend_y = map_y + map_h - 10.0;
+        draw_text(
+            "Terrain  Resources  Agents",
+            map_x + 5.0,
+            legend_y,
+            8.0,
+            Color::from_rgba(150, 150, 150, 200),
         );
     }
 }

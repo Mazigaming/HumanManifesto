@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-// 10 genome traits, each 0.0-1.0, each with trade-offs
+// 12 genome traits, each 0.0-1.0, each with trade-offs
 #[derive(Clone, Copy, Debug)]
 pub struct Genome {
     pub speed: f32,          // Movement speed, costs energy while moving
@@ -14,6 +14,8 @@ pub struct Genome {
     pub sight_range: f32,    // Vision radius, passive energy cost
     pub cold_tolerance: f32, // Survives cold biomes, costs in hot biomes
     pub heat_tolerance: f32, // Survives hot biomes, costs in cold biomes
+    pub sexuality: f32,      // 0.0=hetero, 0.5=bi, 1.0=homo
+    pub intelligence: f32,   // Better memory, foraging, decision-making
 }
 
 impl Genome {
@@ -30,6 +32,8 @@ impl Genome {
             sight_range: rand_f32(),
             cold_tolerance: rand_f32(),
             heat_tolerance: rand_f32(),
+            sexuality: rand_f32(),
+            intelligence: rand_f32(),
         }
     }
 
@@ -46,13 +50,14 @@ impl Genome {
             sight_range: (parent_a.sight_range + parent_b.sight_range) * 0.5,
             cold_tolerance: (parent_a.cold_tolerance + parent_b.cold_tolerance) * 0.5,
             heat_tolerance: (parent_a.heat_tolerance + parent_b.heat_tolerance) * 0.5,
+            sexuality: (parent_a.sexuality + parent_b.sexuality) * 0.5,
+            intelligence: (parent_a.intelligence + parent_b.intelligence) * 0.5,
         };
         g.mutate(mutation_rate);
         g
     }
 
     pub fn mutate(&mut self, rate: f32) {
-        // Small mutations
         Self::mutate_trait(&mut self.speed, rate);
         Self::mutate_trait(&mut self.strength, rate);
         Self::mutate_trait(&mut self.fertility, rate);
@@ -64,6 +69,8 @@ impl Genome {
         Self::mutate_trait(&mut self.sight_range, rate);
         Self::mutate_trait(&mut self.cold_tolerance, rate);
         Self::mutate_trait(&mut self.heat_tolerance, rate);
+        Self::mutate_trait(&mut self.sexuality, rate);
+        Self::mutate_trait(&mut self.intelligence, rate);
     }
 
     fn mutate_trait(trait_val: &mut f32, rate: f32) {
@@ -80,10 +87,10 @@ impl Genome {
 
     // Phenotype color derived from genome
     pub fn phenotype_color(&self) -> Color {
-        let r = (self.aggression * 200.0 + 55.0) as u8;
-        let g = (self.metabolism * 150.0 + 50.0) as u8;
-        let b = (self.sociability * 200.0 + 55.0) as u8;
-        Color::from_rgba(r, g, b, 255)
+        let r = (self.aggression * 200.0 + 55.0 + self.sexuality * 30.0) as u8;
+        let g = (self.metabolism * 150.0 + 50.0 + self.intelligence * 50.0) as u8;
+        let b = (self.sociability * 200.0 + 55.0 + (1.0 - self.sexuality) * 30.0) as u8;
+        Color::from_rgba(r.min(255), g.min(255), b.min(255), 255)
     }
 
     // Color blended with biome for camouflage
@@ -109,8 +116,10 @@ impl Genome {
             + (self.lifespan - other.lifespan).abs()
             + (self.sight_range - other.sight_range).abs()
             + (self.cold_tolerance - other.cold_tolerance).abs()
-            + (self.heat_tolerance - other.heat_tolerance).abs();
-        1.0 - diff / 10.0
+            + (self.heat_tolerance - other.heat_tolerance).abs()
+            + (self.sexuality - other.sexuality).abs()
+            + (self.intelligence - other.intelligence).abs();
+        1.0 - diff / 12.0
     }
 }
 
@@ -130,12 +139,19 @@ pub fn rand_f32() -> f32 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gender {
+    Male,
+    Female,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BehaviorState {
     Idle,
     Fleeing,
     SeekingFood,
     SeekingWater,
     Reproducing,
+    Pregnant,
     Socializing,
     Wandering,
     Fighting,
@@ -161,6 +177,9 @@ pub struct DiseaseState {
 pub struct Agent {
     pub id: u64,
     pub lineage_id: u32,
+    pub tribe_id: Option<u32>,
+    pub belief_id: Option<u32>,
+    pub gender: Gender,
     pub genome: Genome,
     pub energy: f32,
     pub max_energy: f32,
@@ -171,29 +190,45 @@ pub struct Agent {
     pub row: i32,
     pub behavior: BehaviorState,
     pub repro_cooldown: u32,
+    pub pregnancy_days: u32,
+    pub pregnancy_father_genome: Option<Genome>,
     pub memory: [Option<MemorySlot>; 5],
     pub disease: DiseaseState,
     pub conflict_wins: u32,
-    pub large_mutation: bool, // Flag for visual highlight
-    pub highlight_timer: u32, // Countdown for golden mutation flash
+    pub large_mutation: bool,
+    pub highlight_timer: u32,
+    pub exploration_dc: f32,
+    pub exploration_dr: f32,
+    pub exploration_ticks: u32,
+    pub experience: f32,
 }
 
 impl Agent {
     pub fn new(id: u64, lineage_id: u32, col: i32, row: i32, genome: Genome) -> Self {
-        let max_energy = 100.0 + genome.strength * 50.0;
+        let max_energy = 120.0 + genome.strength * 60.0;
+        let gender = if rand_f32() < 0.5 {
+            Gender::Male
+        } else {
+            Gender::Female
+        };
         Agent {
             id,
             lineage_id,
+            tribe_id: None,
+            belief_id: None,
+            gender,
             genome,
-            energy: max_energy * 0.9,
+            energy: max_energy,
             max_energy,
-            hydration: 90.0,
+            hydration: 100.0,
             health: 100.0,
             age: 0,
             col,
             row,
             behavior: BehaviorState::Idle,
             repro_cooldown: 0,
+            pregnancy_days: 0,
+            pregnancy_father_genome: None,
             memory: [None; 5],
             disease: DiseaseState {
                 infected: false,
@@ -203,6 +238,10 @@ impl Agent {
             conflict_wins: 0,
             large_mutation: false,
             highlight_timer: 0,
+            exploration_dc: 0.0,
+            exploration_dr: 0.0,
+            exploration_ticks: 0,
+            experience: 0.0,
         }
     }
 
@@ -233,9 +272,10 @@ impl Agent {
     }
 
     pub fn decay_memories(&mut self) {
+        let decay_rate = 0.01 + (1.0 - self.genome.intelligence) * 0.02;
         for i in 0..5 {
             if let Some(ref mut m) = self.memory[i] {
-                m.decay -= 0.01;
+                m.decay -= decay_rate;
                 if m.decay <= 0.0 {
                     self.memory[i] = None;
                 }
@@ -244,6 +284,7 @@ impl Agent {
     }
 
     pub fn sight_radius(&self) -> f32 {
-        2.0 + self.genome.sight_range * 6.0
+        let base = 2.0 + self.genome.sight_range * 6.0;
+        base * (0.8 + self.genome.intelligence * 0.4)
     }
 }

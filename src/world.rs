@@ -522,6 +522,10 @@ impl World {
         world.place_legendary_resources(2);
         world.add_special_biome_variants(8);
 
+        // Guarantee food/water resources near origin points for early survival
+        world.guarantee_origin_resources();
+        world.guarantee_origin_water();
+
         println!("[DEBUG] Phase 1.5 generation complete");
         println!("[DEBUG] Plates: {}, Boundaries detected", plates.len());
 
@@ -1114,7 +1118,7 @@ impl World {
                     col as f64 * RESOURCE_SCALE,
                     row as f64 * RESOURCE_SCALE,
                 ) as f32;
-                if roll < 0.2 {
+                if roll < 0.1 {
                     continue;
                 }
                 let mut cumulative = 0.0_f32;
@@ -1142,6 +1146,158 @@ impl World {
     #[allow(dead_code)]
     pub fn get_tile_info(&self, col: i32, row: i32) -> Option<&HexTile> {
         self.get_tile(col, row)
+    }
+
+    fn guarantee_origin_resources(&mut self) {
+        let origins: Vec<(i32, i32)> = self
+            .tiles
+            .iter()
+            .filter(|t| t.origin_point.is_some())
+            .map(|t| (t.col, t.row))
+            .collect();
+
+        for (origin_col, origin_row) in origins {
+            let radius = 25;
+            let mut guaranteed = 0;
+            let target = 20;
+            for dr in -radius..=radius {
+                for dc in -radius..=radius {
+                    let c = origin_col + dc;
+                    let r = origin_row + dr;
+                    if c < 0 || r < 0 || c >= self.width || r >= self.height {
+                        continue;
+                    }
+                    if let Some(idx) = tile_index(c, r, self.width) {
+                        if idx < self.tiles.len() && self.tiles[idx].resource.is_none() {
+                            let dist = ((dc * dc + dr * dr) as f32).sqrt();
+                            if dist < radius as f32 && guaranteed < target {
+                                let biome = self.tiles[idx].biome;
+                                let table = resource_table(biome);
+                                if table.is_empty() {
+                                    continue;
+                                }
+                                let food_types: Vec<ResourceType> = table
+                                    .iter()
+                                    .filter(|(rt, _, _)| {
+                                        matches!(
+                                            rt,
+                                            ResourceType::WildBerries
+                                                | ResourceType::WildGame
+                                                | ResourceType::FreshFish
+                                                | ResourceType::WildGrain
+                                                | ResourceType::Mushrooms
+                                                | ResourceType::Honey
+                                                | ResourceType::Nuts
+                                                | ResourceType::MedicinalHerbs
+                                        )
+                                    })
+                                    .map(|(rt, _, _)| *rt)
+                                    .collect();
+                                if food_types.is_empty() {
+                                    continue;
+                                }
+                                let res_type =
+                                    food_types[(c * 7 + r * 13) as usize % food_types.len()];
+                                self.tiles[idx].resource = Some(ResourceNode {
+                                    resource_type: res_type,
+                                    richness: 0.8,
+                                });
+                                guaranteed += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn regrow_food(&mut self, agent_positions: &[(i32, i32)]) {
+        for &(col, row) in agent_positions {
+            let radius = 15;
+            let mut added = 0;
+            let target = 3;
+            for dr in -radius..=radius {
+                for dc in -radius..=radius {
+                    let c = col + dc;
+                    let r = row + dr;
+                    if c < 0 || r < 0 || c >= self.width || r >= self.height {
+                        continue;
+                    }
+                    if let Some(idx) = tile_index(c, r, self.width) {
+                        if idx < self.tiles.len() && self.tiles[idx].resource.is_none() {
+                            let dist = ((dc * dc + dr * dr) as f32).sqrt();
+                            if dist < radius as f32 && added < target {
+                                let biome = self.tiles[idx].biome;
+                                let table = resource_table(biome);
+                                if table.is_empty() {
+                                    continue;
+                                }
+                                let food_types: Vec<ResourceType> = table
+                                    .iter()
+                                    .filter(|(rt, _, _)| {
+                                        matches!(
+                                            rt,
+                                            ResourceType::WildBerries
+                                                | ResourceType::WildGame
+                                                | ResourceType::FreshFish
+                                                | ResourceType::WildGrain
+                                                | ResourceType::Mushrooms
+                                                | ResourceType::Honey
+                                                | ResourceType::Nuts
+                                                | ResourceType::MedicinalHerbs
+                                        )
+                                    })
+                                    .map(|(rt, _, _)| *rt)
+                                    .collect();
+                                if food_types.is_empty() {
+                                    continue;
+                                }
+                                let res_type =
+                                    food_types[(c * 7 + r * 13) as usize % food_types.len()];
+                                self.tiles[idx].resource = Some(ResourceNode {
+                                    resource_type: res_type,
+                                    richness: 0.7,
+                                });
+                                added += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn guarantee_origin_water(&mut self) {
+        let origins: Vec<(i32, i32)> = self
+            .tiles
+            .iter()
+            .filter(|t| t.origin_point.is_some())
+            .map(|t| (t.col, t.row))
+            .collect();
+
+        for (origin_col, origin_row) in origins {
+            let radius = 20;
+            let mut added = 0;
+            let target = 10;
+            for dr in -radius..=radius {
+                for dc in -radius..=radius {
+                    let c = origin_col + dc;
+                    let r = origin_row + dr;
+                    if c < 0 || r < 0 || c >= self.width || r >= self.height {
+                        continue;
+                    }
+                    if let Some(idx) = tile_index(c, r, self.width) {
+                        if idx < self.tiles.len() && !self.tiles[idx].is_river {
+                            let dist = ((dc * dc + dr * dr) as f32).sqrt();
+                            if dist < radius as f32 && added < target {
+                                self.tiles[idx].is_river = true;
+                                added += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
