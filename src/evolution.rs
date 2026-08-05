@@ -961,7 +961,7 @@ impl EvolutionSim {
             }
         }
 
-        // 3. Reproduce (use spatial grid)
+        // 3. Reproduce (use spatial grid with expanded search)
         let can_reproduce_age = agent_age > 60;
         if can_reproduce_age
             && agent_energy > agent_max_energy * 0.3
@@ -969,7 +969,9 @@ impl EvolutionSim {
             && agent_repro_cooldown == 0
             && agent_pregnancy_days == 0
         {
-            if let Some(mate_idx) = self.find_mate_spatial(agent_idx, agent_sight) {
+            // Use wider search for mates (3x normal sight) to combat low population density
+            let mate_search_radius = agent_sight * 3.0;
+            if let Some(mate_idx) = self.find_mate_spatial(agent_idx, mate_search_radius) {
                 self.reproduce(agent_idx, mate_idx);
                 self.agents[agent_idx].behavior = BehaviorState::Reproducing;
                 return;
